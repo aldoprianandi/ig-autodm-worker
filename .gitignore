@@ -1,0 +1,12 @@
+node_modules/
+.wrangler/
+wrangler.toml
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env
+.env.*
+!.env.example
+dist/
+coverage/
+*.log

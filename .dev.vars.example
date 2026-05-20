@@ -1,0 +1,17 @@
+META_APP_SECRET="replace-with-meta-app-secret"
+INSTAGRAM_APP_SECRET="replace-with-instagram-app-secret-or-leave-unset"
+META_VERIFY_TOKEN="replace-with-random-webhook-verify-token"
+INSTAGRAM_ACCESS_TOKEN="replace-with-instagram-access-token"
+INSTAGRAM_ACCOUNT_ID="replace-with-instagram-professional-account-id"
+
+ADMIN_TOKEN="replace-with-24-plus-character-random-admin-token"
+ADMIN_LOGIN_USERNAME="replace-with-admin-username"
+ADMIN_LOGIN_PASSWORD="replace-with-10-plus-character-admin-password"
+
+AUTOMATION_ENABLED="false"
+TOKEN_ENCRYPTION_KEY="replace-with-32-plus-random-characters"
+META_SENDS_PER_MINUTE="30"
+AUTO_FINAL_AFTER_OPENING="false"
+
+TURNSTILE_SITE_KEY=""
+TURNSTILE_SECRET_KEY=""

@@ -1,0 +1,23 @@
+{
+  "id": "prompt-test",
+  "name": "Prompt Test",
+  "mediaId": "replace-with-instagram-media-id",
+  "keyword": "PROMPT",
+  "openingText": "Want me to send the guide?",
+  "openingTextVariants": [
+    "Want me to send the guide?",
+    "I can send the guide by DM."
+  ],
+  "buttonTitle": "SEND",
+  "buttonPayload": "prompt-test:confirm",
+  "dmSteps": [],
+  "deliveryText": "Here is the guide: https://example.com/guide",
+  "commentReplyText": "Sent. Check your DM.",
+  "commentReplyTextVariants": [
+    "Sent. Check your DM.",
+    "Done. Please check your DM."
+  ],
+  "openingFailureReplyText": "I could not send the DM. Please check your message request settings.",
+  "followGateEnabled": false,
+  "enabled": true
+}

@@ -1,0 +1,54 @@
+{
+  "name": "ig-autodm-worker",
+  "version": "0.1.0",
+  "description": "Self-hosted Instagram comment-to-DM automation on Cloudflare Workers using the official Meta API.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "npm@11.8.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "scan:oss": "node scripts/oss-scan.mjs",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aldoprianandi/ig-autodm-worker.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aldoprianandi/ig-autodm-worker/issues"
+  },
+  "homepage": "https://github.com/aldoprianandi/ig-autodm-worker#readme",
+  "keywords": [
+    "instagram",
+    "meta-api",
+    "cloudflare-workers",
+    "d1",
+    "queues",
+    "automation",
+    "self-hosted"
+  ],
+  "dependencies": {
+    "hono": "^4.12.21",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260520.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.93.0"
+  },
+  "overrides": {
+    "miniflare": {
+      "ws": "8.20.1"
+    }
+  }
+}

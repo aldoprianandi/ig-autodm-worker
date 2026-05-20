@@ -1,0 +1,28 @@
+name: Feature request
+description: Suggest a safe official-API feature.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Requests involving scraping, passwords, session cookies, browser bots, or unofficial Instagram APIs are out of scope.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What operator or user problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the desired behavior and API surface.
+    validations:
+      required: true
+  - type: textarea
+    id: compliance
+    attributes:
+      label: Safety and compliance notes
+      description: How does this stay within official Meta API behavior?

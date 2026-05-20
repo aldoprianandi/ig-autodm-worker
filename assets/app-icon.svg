@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">IG AutoDM Worker Icon</title>
+  <desc id="desc">A compact icon for the Instagram automation self-hosted worker.</desc>
+  <defs>
+    <linearGradient id="bg" x1="128" y1="80" x2="896" y2="944" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0f172a"/>
+      <stop offset="0.48" stop-color="#334155"/>
+      <stop offset="1" stop-color="#10b981"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="272" y1="244" x2="780" y2="812" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
+  <rect x="248" y="276" width="528" height="384" rx="104" fill="#ffffff" opacity="0.96"/>
+  <path d="M342 398c0-33 27-60 60-60h220c33 0 60 27 60 60v140c0 33-27 60-60 60H474l-102 78c-13 10-32 1-32-16v-64c-32-1-58-28-58-60V398z" fill="#0f172a"/>
+  <path d="M386 444h252v40H386v-40zm0 76h172v40H386v-40z" fill="#ffffff"/>
+  <circle cx="696" cy="328" r="70" fill="url(#accent)"/>
+  <path d="M696 286v84m-42-42h84" stroke="#ffffff" stroke-width="34" stroke-linecap="round"/>
+  <path d="M250 728c84 68 173 102 266 102 96 0 182-36 258-108" fill="none" stroke="#ffffff" stroke-width="54" stroke-linecap="round" opacity="0.9"/>
+</svg>

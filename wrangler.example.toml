@@ -1,0 +1,26 @@
+name = "ig-autodm-worker"
+main = "src/index.ts"
+compatibility_date = "2026-05-07"
+workers_dev = true
+preview_urls = false
+
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ig-autodm-worker"
+database_id = "replace-after-wrangler-d1-create"
+
+[[queues.producers]]
+binding = "DELIVERY_QUEUE"
+queue = "ig-autodm-deliveries"
+
+[[queues.consumers]]
+queue = "ig-autodm-deliveries"
+max_batch_size = 1
+max_batch_timeout = 1
+max_retries = 5
+retry_delay = 60
+max_concurrency = 2
+dead_letter_queue = "ig-autodm-deliveries-dlq"
