@@ -21,6 +21,7 @@ const MAX_WEBHOOK_BODY_BYTES = 256 * 1024;
 const MAX_DATA_DELETION_BODY_BYTES = 16 * 1024;
 const MIN_META_SECRET_LENGTH = 16;
 const MIN_VERIFY_TOKEN_LENGTH = 8;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 app.get("/health", (c) => c.json({ ok: true, service: "ig-autodm-worker" }));
 app.get("/admin-ui", (c) => {
@@ -59,9 +60,10 @@ function publicHtmlSecurityHeaders(nonce: string): HeadersInit {
   };
 }
 
-function htmlResponse(title: string, body: string): Response {
+function htmlResponse(title: string, body: string, status = 200): Response {
   const nonce = makeNonce();
   return new Response(legalPage(title, body, nonce), {
+    status,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       ...publicHtmlSecurityHeaders(nonce)
@@ -172,12 +174,26 @@ app.post("/data-deletion", async (c) => {
   });
 });
 
-app.get("/data-deletion/status/:code", () =>
-  htmlResponse(
-    "Data Deletion Status",
-    `<h1>Data Deletion Status</h1><p>The deletion request was received and processed by the self-hosted automation service.</p>`
-  )
-);
+app.get("/data-deletion/status/:code", async (c) => {
+  const code = c.req.param("code");
+  if (!UUID_PATTERN.test(code)) {
+    return dataDeletionStatusResponse(false);
+  }
+
+  const repo = new Repository(c.env.DB);
+  const found = await repo.dataDeletionConfirmationExists(code);
+  return dataDeletionStatusResponse(found);
+});
+
+function dataDeletionStatusResponse(found: boolean): Response {
+  return htmlResponse(
+    found ? "Data Deletion Status" : "Data Deletion Status Not Found",
+    found
+      ? `<h1>Data Deletion Status</h1><p>The deletion request was received and processed by the self-hosted automation service.</p>`
+      : `<h1>Data Deletion Status</h1><p>The deletion request was not found.</p>`,
+    found ? 200 : 404
+  );
+}
 
 app.get("/webhooks/meta", (c) => {
   if (!metaWebhookConfigured(c.env)) return c.text("Webhook is not configured", 503);

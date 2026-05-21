@@ -49,7 +49,7 @@ const createCampaignSchema = z.object({
   followGateEnabled: z.boolean().default(false),
   followGateText: z.string().trim().max(640).nullable().optional(),
   followGateButtonTitle: z.string().trim().max(20).nullable().optional(),
-  enabled: z.boolean().default(true)
+  enabled: z.boolean().default(false)
 }).transform((campaign) => {
   const commentReplyText = campaign.commentReplyText ?? null;
   const openingFailureReplyText = campaign.openingFailureReplyText?.trim() || null;
@@ -241,6 +241,10 @@ function turnstileConfigured(
   env: Env
 ): env is Env & { TURNSTILE_SITE_KEY: string; TURNSTILE_SECRET_KEY: string } {
   return Boolean(env.TURNSTILE_SITE_KEY?.trim() && env.TURNSTILE_SECRET_KEY?.trim());
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function randomToken(bytes = 32): string {
@@ -896,7 +900,11 @@ adminRoutes.post("/campaigns", async (c) => {
     return c.json({ error: body.error }, body.status);
   }
 
-  const writeMode = campaignWriteModeSchema.default("upsert").safeParse((body.value as { writeMode?: unknown }).writeMode);
+  if (!isJsonObject(body.value)) {
+    return c.json({ error: "Invalid campaign" }, 400);
+  }
+
+  const writeMode = campaignWriteModeSchema.default("upsert").safeParse(body.value.writeMode);
   if (!writeMode.success) {
     return c.json({ error: "Invalid campaign write mode" }, 400);
   }
@@ -944,7 +952,7 @@ adminRoutes.patch("/campaigns/:id", async (c) => {
     return c.json({ error: parsedBody.error }, parsedBody.status);
   }
 
-  const body = parsedBody.value as { enabled?: unknown };
+  const body = isJsonObject(parsedBody.value) ? parsedBody.value : {};
 
   if (typeof body.enabled !== "boolean") {
     return c.json({ error: "enabled boolean is required" }, 400);

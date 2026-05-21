@@ -29,7 +29,7 @@
 | Encrypted token vault | Live | Refreshed Instagram tokens are encrypted in D1 with `TOKEN_ENCRYPTION_KEY`. |
 | Automatic token refresh | Live | Cron refreshes long-lived Instagram tokens when due. |
 | Outbound send limiter | Live | Queue consumer rate-limits local Meta sends before calling Graph. |
-| Delivery recovery | Live | Cron re-enqueues stale `queued`, `retrying`, and stale `processing` rows so lost queue sends can recover. |
+| Delivery recovery | Live | Cron re-enqueues stale `queued`/`retrying` rows; stale `processing` rows become `send_status_unknown` for manual reconciliation to avoid duplicate sends after an accepted Meta call. |
 | Operational cleanup | Live | Cron removes old webhook, delivery, contact, audit, event, and limiter rows in bounded batches. |
 | Meta app legal pages | Live | `/privacy`, `/terms`, `/data-deletion`; POST deletion callback verifies Meta signed requests. |
 | Upstream error redaction | Live | Token-like strings are redacted before responses/storage. |

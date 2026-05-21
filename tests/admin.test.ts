@@ -479,6 +479,43 @@ describe("admin routes", () => {
     expect(body.error).toBe("Invalid campaign");
   });
 
+  it("rejects syntactically valid non-object campaign JSON without throwing", async () => {
+    const response = await app.request(
+      "/admin/campaigns",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer test-admin-token-with-enough-entropy",
+          "Content-Type": "application/json"
+        },
+        body: "null"
+      },
+      env
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toBe("Invalid campaign");
+  });
+
+  it("rejects syntactically valid non-object campaign patch JSON without throwing", async () => {
+    const response = await app.request(
+      "/admin/campaigns/campaign-1",
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: "Bearer test-admin-token-with-enough-entropy",
+          "Content-Type": "application/json"
+        },
+        body: "null"
+      },
+      env
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "enabled boolean is required" });
+  });
+
   it("rejects oversized admin JSON before parsing", async () => {
     const response = await app.request(
       "/admin/campaigns",
@@ -616,6 +653,41 @@ describe("admin routes", () => {
         dmSteps: [],
         commentReplyTextVariants: ["Sent. Check your DM.", "Please check your DM."],
         openingFailureReplyText: "DM kamu belum bisa kami kirim. Komen PROMPT lagi."
+      }
+    });
+  });
+
+  it("defaults created campaigns to disabled when enabled is omitted", async () => {
+    const response = await app.request(
+      "/admin/campaigns",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer test-admin-token-with-enough-entropy",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          id: "draft-default-campaign",
+          name: "Draft Default Campaign",
+          mediaId: "media-1",
+          keyword: "PROMPT",
+          openingText: "Opening utama",
+          buttonTitle: "KIRIM",
+          buttonPayload: "draft-default-campaign:confirm",
+          deliveryText: "Final prompt",
+          commentReplyText: "Sent. Check your DM.",
+          followGateEnabled: false
+        })
+      },
+      { ...(env as Record<string, unknown>), DB: createAdminDb() } as never
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      campaign: {
+        id: "draft-default-campaign",
+        enabled: false
       }
     });
   });

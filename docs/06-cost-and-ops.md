@@ -17,6 +17,20 @@
 
 Cloudflare free tier is enough for early traffic when each user creates only a few webhook and API events.
 
+### Cloudflare Queues Cost Notes
+
+Queues bill by operations. A normal delivery job is usually three operations: write, read, delete. Each queue retry adds another read operation, and platform-level exhaustion can write the message to the DLQ.
+
+Current planning assumptions:
+
+- Workers Free includes 10,000 Queues operations per day and 24-hour message retention.
+- Workers Paid includes 1,000,000 Queues operations per month, then about `$0.40` per million operations.
+- Queue messages are limited to 128 KB; this template sends small delivery job payloads.
+- Platform limits relevant here include up to 100 message retries, consumer batches up to 100 messages, retry delays up to 24 hours, about 5,000 messages/second per queue, and a 25 GB per-queue backlog.
+- This repo uses `max_batch_size=1`, `max_retries=5`, `retry_delay=60`, `max_concurrency=2`, and a DLQ named `ig-autodm-deliveries-dlq` in `wrangler.example.toml`.
+
+Check Cloudflare pricing before high-volume campaigns; viral posts can spend the free daily operation budget quickly because retries also count.
+
 ### When To Upgrade Workers
 
 Upgrade to Workers Paid when:
@@ -107,7 +121,19 @@ Additional detail remains available through D1 queries and `GET /admin/audit-log
 2. Confirm messaging permission access level.
 3. Confirm user interaction opened a valid messaging context.
 4. Confirm the access token belongs to the connected IG professional account.
-5. Retry only on rate limit or server errors.
+5. Retry only on rate limit, server errors, local rate-limit, or transient follow-status failures.
+6. Queue retries use a fixed 60-second delay and delivery attempts are capped at 5.
+
+### Dead Letter Queue Has Messages
+
+1. Set `AUTOMATION_ENABLED=false` or disable the affected campaign if sends are still failing.
+2. Inspect Cloudflare Queues metrics for `ig-autodm-deliveries` and `ig-autodm-deliveries-dlq`.
+3. Use the DLQ payload `deliveryId` to inspect the D1 `deliveries` row and sanitized `error_code`/`error_message`.
+4. Fix the root cause first: token expiry, missing permission, Meta rate limit, malformed campaign content, or recipient/message-window rejection.
+5. Do not blindly replay old DLQ messages. Confirm the Instagram messaging/private reply window still allows the send.
+6. This template does not expose a generic DLQ replay endpoint. Use the specific follow-retry endpoint for `waiting_follow` final deliveries, or use trusted operator tooling to re-enqueue only policy-safe deliveries.
+
+Normal app-level Meta retry exhaustion usually marks the D1 `deliveries` row as `failed` and acknowledges the queue message. The DLQ is mostly for unacked consumer failures, platform-level retry exhaustion, or unexpected worker crashes before the app can record a terminal delivery state.
 
 ### Viral Spike
 
@@ -128,12 +154,13 @@ Additional detail remains available through D1 queries and `GET /admin/audit-log
 
 The admin API must support:
 
-```http
-PATCH /admin/campaigns/:id
-Authorization: Bearer <ADMIN_TOKEN>
-Content-Type: application/json
-
-{"enabled": false}
+```bash
+read -r -s ADMIN_TOKEN
+curl -X PATCH "https://<worker-name>.<cloudflare-account>.workers.dev/admin/campaigns/<campaign-id>" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{"enabled": false}'
+unset ADMIN_TOKEN
 ```
 
 This must stop new sends while still returning HTTP `200` to Meta webhooks.

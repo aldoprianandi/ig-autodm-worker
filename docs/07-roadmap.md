@@ -1,119 +1,39 @@
 # Roadmap
 
-## Phase 0: Foundation
+This roadmap is for the open-source self-host template. It distinguishes the current baseline from optional future work.
 
-Goal: turn the blueprint into a runnable Worker project.
+## Current Baseline
 
-Deliverables:
+Implemented:
 
-- TypeScript Worker project.
-- D1 schema.
-- Webhook verification.
-- Signature verification.
-- Unit tests for parsing and signature verification.
+- Single-account Cloudflare Worker.
+- D1 schema and migrations.
+- Signed Meta webhook verification.
+- Comment keyword matching by media ID.
+- Queue-backed opening, public reply, follow-gated, and final deliveries.
+- Fixed 60-second queue retry delay with capped delivery attempts.
+- Global `AUTOMATION_ENABLED` kill switch.
+- Single-operator admin API and `/admin-ui`.
+- Legal pages and Meta data deletion callback.
+- Encrypted refreshed-token storage and scheduled cleanup.
+- DLQ configured in the example Wrangler file.
 
-Exit criteria:
+## Near-Term Hardening
 
-- Local tests pass.
-- Meta dashboard webhook verification succeeds.
+Keep this work self-host focused:
 
-## Phase 1: Single Campaign MVP
+- App Review evidence: screencast, reviewer notes, tester account instructions.
+- Delivery inspection and CSV export from existing delivery rows.
+- Operator DLQ triage and selective replay tooling.
+- Clearer setup validation for token/account ID mismatches.
 
-Goal: one post keyword triggers one DM flow.
+## Optional Future Work
 
-Deliverables:
+Not implemented in the template:
 
-- Campaign table.
-- Admin campaign API.
-- Comment webhook parser.
-- Keyword matcher.
-- Opening message sender.
-- Delivery records.
+- Full OAuth install flow for multiple owned Instagram accounts.
+- Multi-operator roles or multi-tenant billing.
+- AI-assisted campaign copy generation.
+- Advanced analytics beyond the operational dashboard.
 
-Exit criteria:
-
-- Comment `PROMPT` on test media sends one opening message.
-- Duplicate webhook does not send another opening message.
-
-## Phase 2: Interactive Delivery
-
-Goal: button tap delivers the final prompt or link.
-
-Deliverables:
-
-- Messaging webhook parser.
-- Button payload router.
-- Contact state transitions.
-- Final delivery sender.
-- Follow gate option.
-
-Exit criteria:
-
-- User taps button and receives final delivery.
-- Follow gate sends follow request when user is not following.
-
-## Phase 3: Reliability
-
-Goal: survive retries, rate limits, and common Meta failures.
-
-Deliverables:
-
-- Queue for outbound sends.
-- Retry policy.
-- Rate limit handling.
-- Kill switch.
-- Logs and metrics.
-
-Exit criteria:
-
-- HTTP `429` and `5xx` are retried.
-- Permanent `4xx` errors are stored and not retried.
-- Campaign can be disabled instantly.
-
-## Phase 4: Meta App Review
-
-Goal: prepare production access.
-
-Deliverables:
-
-- Privacy Policy page.
-- Terms page.
-- Data deletion page.
-- Screencast.
-- App Review notes.
-
-Exit criteria:
-
-- App Review package submitted with a working demo.
-
-## Phase 5: Operator UX
-
-Goal: remove manual API calls for campaign management.
-
-Deliverables:
-
-- Minimal admin UI.
-- Campaign analytics page.
-- Failed delivery view.
-- Export CSV.
-
-Exit criteria:
-
-- Operator can configure and monitor campaigns from browser UI.
-
-## Phase 6: Optional AI
-
-Goal: add usage-based AI without making it core to the funnel.
-
-Deliverables:
-
-- AI feature flag.
-- Message variation generator.
-- Comment classifier.
-- AI usage logging.
-- Max token and max cost controls.
-
-Exit criteria:
-
-- Static flow works with AI disabled.
-- AI spend can be capped.
+Static, user-triggered delivery should remain the default App Review path even if optional features are added later.

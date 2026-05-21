@@ -14,6 +14,7 @@ This project is a single-account template for creators and small operators who w
 - Supports a browser admin console at `/admin-ui`.
 - Refreshes long-lived Instagram tokens and stores refreshed tokens encrypted in D1.
 - Keeps a global `AUTOMATION_ENABLED` kill switch.
+- Does not ship an OAuth callback route; the single-account setup uses a Meta-generated Instagram token.
 
 ```mermaid
 flowchart LR
@@ -40,6 +41,13 @@ The default flow is narrow:
 `AUTO_FINAL_AFTER_OPENING=true` exists for fallback-heavy environments, but it should stay off for safer App Review behavior.
 
 ## Quick Start
+
+Prerequisites:
+
+- Node.js 22 or newer.
+- npm 11.8.0 or compatible.
+- A Cloudflare account with Wrangler authenticated before remote deploy.
+- A Meta developer app with Instagram API access for a Business or Creator test account.
 
 ```bash
 npm install
@@ -76,7 +84,6 @@ npx wrangler secret put META_APP_SECRET
 npx wrangler secret put META_VERIFY_TOKEN
 npx wrangler secret put INSTAGRAM_ACCESS_TOKEN
 npx wrangler secret put INSTAGRAM_ACCOUNT_ID
-npx wrangler secret put INSTAGRAM_MESSAGING_ACCOUNT_IDS
 npx wrangler secret put ADMIN_TOKEN
 npx wrangler secret put ADMIN_LOGIN_USERNAME
 npx wrangler secret put ADMIN_LOGIN_PASSWORD
@@ -84,11 +91,10 @@ npx wrangler secret put AUTOMATION_ENABLED
 npx wrangler secret put TOKEN_ENCRYPTION_KEY
 ```
 
-`INSTAGRAM_MESSAGING_ACCOUNT_IDS` is optional. Use it only when Meta sends Instagram Messaging webhooks with an entry or recipient ID that differs from `INSTAGRAM_ACCOUNT_ID`.
-
 Optional:
 
 ```bash
+npx wrangler secret put INSTAGRAM_MESSAGING_ACCOUNT_IDS
 npx wrangler secret put INSTAGRAM_APP_SECRET
 npx wrangler secret put TURNSTILE_SECRET_KEY
 npx wrangler secret put TURNSTILE_SITE_KEY
@@ -96,13 +102,25 @@ npx wrangler secret put META_SENDS_PER_MINUTE
 npx wrangler secret put AUTO_FINAL_AFTER_OPENING
 ```
 
+Get `INSTAGRAM_ACCESS_TOKEN` from the Meta App Dashboard for the connected Instagram Business or Creator test account. To find `INSTAGRAM_ACCOUNT_ID`, call `/me` with that token and use the returned `user_id`:
+
+```bash
+read -r -s IG_ACCESS_TOKEN
+curl -H "Authorization: Bearer ${IG_ACCESS_TOKEN}" \
+  "https://graph.instagram.com/v25.0/me?fields=user_id,username"
+unset IG_ACCESS_TOKEN
+```
+
+`INSTAGRAM_MESSAGING_ACCOUNT_IDS` is optional. Leave it unset unless real messaging webhooks show an entry or recipient ID that differs from `INSTAGRAM_ACCOUNT_ID`; if needed, store a comma-separated placeholder-safe list of allowed IDs.
+
 ## Verification
 
 Run before deploying or opening a PR:
 
 ```bash
 npm run typecheck
-npm test
+npm run infra:validate
+npm run test:coverage
 npm audit --json
 npm audit signatures
 npm run scan:oss
@@ -127,6 +145,8 @@ Use this shape in the Meta dashboard:
 ```text
 https://<worker-name>.<cloudflare-account>.workers.dev/webhooks/meta
 ```
+
+Keep `AUTOMATION_ENABLED=false` for the first deploy. After health, webhook verification, admin login, and one disabled/draft campaign are verified, set it to `true` and enable only the test campaign for the first end-to-end run.
 
 ## Documentation
 

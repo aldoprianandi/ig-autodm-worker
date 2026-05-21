@@ -89,6 +89,12 @@ class FakeDeliveryRepository {
   }
 }
 
+class FailingPostSendRepository extends FakeDeliveryRepository {
+  async markDeliverySent(): Promise<void> {
+    throw new Error("D1 write failed after Meta accepted send");
+  }
+}
+
 class FakeMetaClient {
   follows: boolean | null = true;
   textResult:
@@ -143,6 +149,12 @@ class FakeMetaClient {
   async getUserProfile(igUserId: string): Promise<{ isUserFollowBusiness: boolean | null }> {
     this.profileReads.push(igUserId);
     return { isUserFollowBusiness: this.follows };
+  }
+}
+
+class ThrowingMetaClient extends FakeMetaClient {
+  async sendText(): Promise<typeof this.textResult> {
+    throw new Error("network failed with access_token=secret-token");
   }
 }
 
@@ -202,6 +214,36 @@ describe("processDeliveryJob", () => {
       { campaignId: "campaign-1", igUserId: "user-1", state: "delivered" }
     ]);
     expect(repo.waiting).toEqual([]);
+  });
+
+  it("converts unexpected delivery exceptions into retryable state", async () => {
+    const repo = new FakeDeliveryRepository();
+    const meta = new ThrowingMetaClient();
+
+    const disposition = await processDeliveryJob(repo as never, meta as never, finalJob);
+
+    expect(disposition).toBe("retry");
+    expect(repo.retrying).toEqual([
+      {
+        deliveryId: "campaign-1:user-1:final",
+        code: "delivery_exception",
+        message: "Unexpected delivery error: network failed with access_token=[REDACTED]"
+      }
+    ]);
+    expect(repo.sent).toEqual([]);
+  });
+
+  it("does not mark a sent delivery retrying when post-send persistence fails", async () => {
+    const repo = new FailingPostSendRepository();
+    const meta = new FakeMetaClient();
+
+    await expect(processDeliveryJob(repo as never, meta as never, finalJob)).rejects.toThrow(
+      "D1 write failed after Meta accepted send"
+    );
+
+    expect(meta.sentTexts).toEqual([{ igUserId: "user-1", text: "Final prompt" }]);
+    expect(repo.retrying).toEqual([]);
+    expect(repo.failed).toEqual([]);
   });
 
   it("acks retryable send failures when the retry cap is exhausted", async () => {

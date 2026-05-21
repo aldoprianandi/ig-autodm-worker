@@ -68,6 +68,10 @@ Response:
 }
 ```
 
+### OAuth Callback
+
+`/auth/instagram/callback` is not implemented in this template. Single-account setup uses a Meta-generated Instagram access token stored as `INSTAGRAM_ACCESS_TOKEN`.
+
 ## Meta Webhook Endpoints
 
 ### `GET /webhooks/meta`
@@ -108,10 +112,13 @@ Supported normalized event types:
 
 ## Admin Authentication
 
-CLI/script calls may use:
+CLI/script calls can pass the admin token from an environment variable:
 
-```text
-Authorization: Bearer <ADMIN_TOKEN>
+```bash
+read -r -s ADMIN_TOKEN
+curl -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  "https://<worker-name>.<cloudflare-account>.workers.dev/admin/campaigns"
+unset ADMIN_TOKEN
 ```
 
 Browser dashboard calls use `POST /admin/session` with `ADMIN_LOGIN_USERNAME`, `ADMIN_LOGIN_PASSWORD`, and `ADMIN_TOKEN`. The server sets an `HttpOnly`, `SameSite=Strict` cookie and returns an in-memory CSRF token. Protected browser calls must send `X-CSRF-Token`.
@@ -142,7 +149,7 @@ Response:
 {
   "ok": true,
   "csrfToken": "short-lived-csrf-token",
-  "expiresAt": "2026-05-20T09:30:00.000Z",
+  "expiresAt": "<iso-8601-expiry>",
   "bootstrap": {
     "dashboard": {},
     "campaigns": [],
@@ -195,7 +202,7 @@ Request:
   "followGateEnabled": false,
   "followGateText": null,
   "followGateButtonTitle": null,
-  "enabled": true
+  "enabled": false
 }
 ```
 
@@ -209,18 +216,34 @@ Validation and behavior:
 - `openingText`, `deliveryText`, and optional follow-gate text are DM content; keep them within Meta policy.
 - `commentReplyText` is public Instagram comment content; keep it short and non-spammy.
 - Variants are normalized, deduplicated, and selected deterministically per campaign/user/comment so retries do not change visible text.
+- Start new campaigns with `enabled=false`; enable one controlled test campaign only after `AUTOMATION_ENABLED=true` is intentionally set.
 
 ### `PATCH /admin/campaigns/:id`
 
-Updates a campaign. Same request shape and normalization as create.
+Enables or disables an existing campaign.
+
+```json
+{"enabled": false}
+```
 
 ### `DELETE /admin/campaigns/:id`
 
 Deletes a campaign and associated state rows.
 
-### `POST /admin/campaigns/:id/follow-retry`
+### `POST /admin/deliveries/:campaignId/:igUserId/follow-retry`
 
 Manually requeues a final delivery follow check for a follow-gated campaign/user pair.
+
+Path params:
+
+- `campaignId`: configured campaign ID.
+- `igUserId`: Instagram user ID from the contact/delivery row.
+
+Behavior:
+
+- Requires the campaign to exist, be enabled, and have follow gate enabled.
+- Requeues only a `waiting_follow` final delivery for that campaign/user pair.
+- Sends a new `final` job to `DELIVERY_QUEUE`.
 
 ## Admin Media Helpers
 
@@ -274,6 +297,13 @@ Cron runs once per minute and may:
 
 Polling is a fallback. Webhooks are the primary ingestion path; high-comment spikes can exceed fallback polling coverage.
 
+## Delivery Retry Behavior
+
+- Outbound sends run through `DELIVERY_QUEUE`, not synchronously inside webhook requests.
+- Retryable failures use a fixed 60-second queue retry delay.
+- Delivery attempts are capped at 5 before the row is marked `failed`.
+- The example Queue consumer also sets `max_retries=5`; app-level Meta retry exhaustion usually marks D1 `deliveries` as `failed`, while the configured DLQ is for unacked/platform-level consumer exhaustion.
+
 ## Delivery Types
 
 - `opening`
@@ -299,7 +329,6 @@ Required secrets:
 - `AUTOMATION_ENABLED`
 - `INSTAGRAM_ACCESS_TOKEN`
 - `INSTAGRAM_ACCOUNT_ID`
-- `INSTAGRAM_MESSAGING_ACCOUNT_IDS` when Meta Messaging webhook entry or recipient IDs differ from `INSTAGRAM_ACCOUNT_ID`
 - `META_APP_SECRET`
 - `META_VERIFY_TOKEN`
 - `TOKEN_ENCRYPTION_KEY`
@@ -307,6 +336,7 @@ Required secrets:
 Optional:
 
 - `INSTAGRAM_APP_SECRET`
+- `INSTAGRAM_MESSAGING_ACCOUNT_IDS` when Meta Messaging webhook entry or recipient IDs differ from `INSTAGRAM_ACCOUNT_ID`
 - `META_SENDS_PER_MINUTE`
 - `AUTO_FINAL_AFTER_OPENING`
 - `TURNSTILE_SITE_KEY`

@@ -28,8 +28,8 @@ const forbiddenPathPatterns = [
 
 const forbiddenText = [
   {
-    id: "specific-worker-url",
-    pattern: /https:\/\/ig-autodm-worker\.(?!<cloudflare-account>)[A-Za-z0-9-]+\.workers\.dev/i
+    id: "live-worker-url",
+    pattern: /https:\/\/(?!<worker-name>\.<cloudflare-account>)[A-Za-z0-9-]+\.[A-Za-z0-9-]+\.workers\.dev/i
   },
   {
     id: "real-d1-database-id",

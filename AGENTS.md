@@ -42,7 +42,8 @@ Run these before claiming code changes are ready:
 
 ```bash
 npm run typecheck
-npm test
+npm run infra:validate
+npm run test:coverage
 npm audit --json
 npm audit signatures
 npm run scan:oss
@@ -93,7 +94,7 @@ git log --format='%s' main..HEAD | rg -n -v '^(feat|fix|docs|test|chore|refactor
 - `src/flows/router.ts`: campaign matching and state transition.
 - `src/poller/comments.ts`: fallback comment polling, public comment reply, and optional automatic final delivery.
 - `src/queue/consumer.ts`: delivery job processing and Meta send retries.
-- `src/queue/recovery.ts`: re-enqueues stale queued/retrying/processing delivery rows.
+- `src/queue/recovery.ts`: re-enqueues stale queued/retrying delivery rows and marks stale processing rows `send_status_unknown`.
 - `src/db/repository.ts`: D1 access layer.
 
 ## Documentation Rules
@@ -113,7 +114,7 @@ git log --format='%s' main..HEAD | rg -n -v '^(feat|fix|docs|test|chore|refactor
 - Browser admin UI must not embed secret values or production data.
 - Browser session resume may use `GET /admin/session`, but it must keep the session cookie HttpOnly, validate user-agent hash, and rotate CSRF before protected API calls.
 - Outbound sends pass the local `outbound_rate_limits` limiter before Meta calls.
-- Delivery jobs are claimed before sending and stale queued/processing rows are recovered by cron.
+- Delivery jobs are claimed before sending; stale queued/retrying rows are recovered by cron, while stale processing rows require manual reconciliation.
 - Upstream error messages are redacted before API responses or delivery storage.
 - D1 queries use prepared statements and `.bind()`.
 - Queue and poller paths are idempotent through delivery/event unique keys.

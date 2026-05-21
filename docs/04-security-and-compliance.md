@@ -44,14 +44,16 @@ Canonical secret inventory:
 
 - Required Worker secrets:
   - `ADMIN_TOKEN`
+  - `ADMIN_LOGIN_USERNAME`
+  - `ADMIN_LOGIN_PASSWORD`
   - `AUTOMATION_ENABLED`
   - `INSTAGRAM_ACCESS_TOKEN`
   - `INSTAGRAM_ACCOUNT_ID`
-  - `INSTAGRAM_MESSAGING_ACCOUNT_IDS` when Meta Messaging webhook account IDs differ from the comment account ID
   - `META_APP_SECRET`
   - `META_VERIFY_TOKEN`
   - `TOKEN_ENCRYPTION_KEY`
 - Optional Worker config:
+  - `INSTAGRAM_MESSAGING_ACCOUNT_IDS` only when Meta Messaging webhook account IDs differ from the comment account ID
   - `META_SENDS_PER_MINUTE`
   - `AUTO_FINAL_AFTER_OPENING`
   - `OPENAI_API_KEY` only if AI generation is enabled later
@@ -66,7 +68,7 @@ Outbound Graph API calls must use `Authorization` headers, not `access_token` qu
 
 ### Admin API
 
-- Require `Authorization: Bearer <ADMIN_TOKEN>` for CLI/script calls or a DB-backed browser session created from `ADMIN_LOGIN_USERNAME`, `ADMIN_LOGIN_PASSWORD`, and `ADMIN_TOKEN` with matching `X-CSRF-Token`.
+- Require CLI/script calls to send `ADMIN_TOKEN` in the `Authorization` header, or use a DB-backed browser session created from `ADMIN_LOGIN_USERNAME`, `ADMIN_LOGIN_PASSWORD`, and `ADMIN_TOKEN` with matching `X-CSRF-Token`.
 - Rate limit admin endpoints before bearer/session comparison, using conditional writes so parallel requests cannot trivially bypass the configured cap.
 - Rate limit login attempts separately and consume a global failed-auth bucket on failed admin authentication.
 - Return generic errors on authentication failure.
@@ -77,12 +79,13 @@ Outbound Graph API calls must use `Authorization` headers, not `access_token` qu
 
 ### Token Strategy
 
-MVP:
+Current template:
 
-- Single Instagram access token stored as Cloudflare secret.
-- Cron reminder or token refresh endpoint depending on Meta login flow support.
+- Single Instagram access token stored as a Cloudflare secret for bootstrap.
+- Cron refreshes long-lived Instagram tokens when due.
+- Refreshed token rows are encrypted in D1 with `TOKEN_ENCRYPTION_KEY`.
 
-Production:
+Future multi-account deployment:
 
 - OAuth install flow.
 - Token encryption before storage.
@@ -100,7 +103,8 @@ Default retention:
 Deletion behavior:
 
 - Admin can delete a campaign and related state.
-- Data deletion endpoint should be added before public App Review if Meta asks for it.
+- `POST /data-deletion` verifies Meta signed requests, deletes matching user rows, and returns a confirmation URL/code.
+- Cron deletes old operational rows on the retention schedule.
 
 ### Messaging Compliance
 
@@ -114,11 +118,12 @@ Rules:
 
 ### Rate Limiting
 
-Implement application-side controls:
+Implemented application-side controls:
 
-- Per campaign: cap opening messages per minute.
+- Global outbound Meta send/read buckets using `outbound_rate_limits`.
 - Per user: one public comment reply per campaign.
 - Per user: one final delivery per campaign.
+- Stale `processing` deliveries are marked `send_status_unknown` for manual reconciliation instead of being requeued automatically.
 - Per Meta API response: back off on `429`.
 - Per admin IP: cap writes to admin endpoints.
 

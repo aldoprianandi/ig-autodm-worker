@@ -422,6 +422,23 @@ export class Repository {
     return Number(result.meta.changes ?? 0) === 1;
   }
 
+  async dataDeletionConfirmationExists(confirmationCode: string): Promise<boolean> {
+    const row = await this.db
+      .prepare(
+        `SELECT 1 AS ok
+        FROM operational_events
+        WHERE event_type = 'data_deletion_requested'
+          AND status = 'ok'
+          AND json_valid(metadata_json)
+          AND json_extract(metadata_json, '$.confirmationCode') = ?1
+        LIMIT 1`
+      )
+      .bind(confirmationCode)
+      .first<Record<string, unknown>>();
+
+    return Boolean(row);
+  }
+
   async createDelivery(input: {
     id: string;
     campaignId: string;
@@ -587,7 +604,6 @@ export class Repository {
 
   async claimDeliveryForSend(deliveryId: string, options: { includeWaitingFollow?: boolean } = {}): Promise<DeliveryClaimResult> {
     const now = new Date();
-    const staleProcessingCutoff = new Date(now.getTime() - PROCESSING_RECOVERY_STALE_MS).toISOString();
     const result = await this.db
       .prepare(
         `UPDATE deliveries
@@ -596,11 +612,10 @@ export class Repository {
         WHERE id = ?1
           AND (
             status IN ('queued', 'retrying')
-            OR (status = 'processing' AND updated_at < ?3)
-            OR (?4 = 1 AND status = 'waiting_follow')
+            OR (?3 = 1 AND status = 'waiting_follow')
           )`
       )
-      .bind(deliveryId, now.toISOString(), staleProcessingCutoff, options.includeWaitingFollow ? 1 : 0)
+      .bind(deliveryId, now.toISOString(), options.includeWaitingFollow ? 1 : 0)
       .run();
 
     if (Number(result.meta.changes ?? 0) === 1) return "claimed";
@@ -1083,7 +1098,6 @@ export class Repository {
   async listRecoverableDeliveries(limit = 25, now = new Date()): Promise<RecoverableDelivery[]> {
     const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 100);
     const queuedCutoff = new Date(now.getTime() - QUEUE_RECOVERY_STALE_MS).toISOString();
-    const processingCutoff = new Date(now.getTime() - PROCESSING_RECOVERY_STALE_MS).toISOString();
     const rows = await this.db
       .prepare(
         `SELECT
@@ -1103,15 +1117,13 @@ export class Repository {
             deliveries.delivery_type IN ('opening', 'comment_reply', 'opening_failure_reply', 'final')
             OR deliveries.delivery_type LIKE 'button_step:%'
           )
-          AND (
-            (deliveries.status IN ('queued', 'retrying') AND deliveries.updated_at < ?1)
-            OR (deliveries.status = 'processing' AND deliveries.updated_at < ?2)
-          )
-          AND deliveries.attempt_count < ?4
+          AND deliveries.status IN ('queued', 'retrying')
+          AND deliveries.updated_at < ?1
+          AND deliveries.attempt_count < ?3
         ORDER BY deliveries.updated_at ASC
-        LIMIT ?3`
+        LIMIT ?2`
       )
-      .bind(queuedCutoff, processingCutoff, safeLimit, MAX_DELIVERY_ATTEMPTS)
+      .bind(queuedCutoff, safeLimit, MAX_DELIVERY_ATTEMPTS)
       .all<Record<string, unknown>>();
 
     return rows.results.map((row) => ({
@@ -1129,34 +1141,57 @@ export class Repository {
   async markExhaustedRecoverableDeliveries(limit = 100, now = new Date()): Promise<number> {
     const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 500);
     const queuedCutoff = new Date(now.getTime() - QUEUE_RECOVERY_STALE_MS).toISOString();
-    const processingCutoff = new Date(now.getTime() - PROCESSING_RECOVERY_STALE_MS).toISOString();
     const result = await this.db
       .prepare(
         `UPDATE deliveries
         SET status = 'failed',
             error_code = 'retry_exhausted',
             error_message = 'Retry attempts exhausted before stale recovery',
-            updated_at = ?3
+            updated_at = ?2
         WHERE rowid IN (
           SELECT deliveries.rowid
           FROM deliveries
-          JOIN campaigns
-            ON campaigns.id = deliveries.campaign_id
-           AND campaigns.enabled = 1
           WHERE (
               deliveries.delivery_type IN ('opening', 'comment_reply', 'opening_failure_reply', 'final')
               OR deliveries.delivery_type LIKE 'button_step:%'
             )
-            AND (
-              (deliveries.status IN ('queued', 'retrying') AND deliveries.updated_at < ?1)
-              OR (deliveries.status = 'processing' AND deliveries.updated_at < ?2)
-            )
-            AND deliveries.attempt_count >= ?4
+            AND deliveries.status IN ('queued', 'retrying')
+            AND deliveries.updated_at < ?1
+            AND deliveries.attempt_count >= ?3
           ORDER BY deliveries.updated_at ASC
-          LIMIT ?5
+          LIMIT ?4
         )`
       )
-      .bind(queuedCutoff, processingCutoff, now.toISOString(), MAX_DELIVERY_ATTEMPTS, safeLimit)
+      .bind(queuedCutoff, now.toISOString(), MAX_DELIVERY_ATTEMPTS, safeLimit)
+      .run();
+
+    return Number(result.meta.changes ?? 0);
+  }
+
+  async markStaleProcessingDeliveriesUnknown(limit = 100, now = new Date()): Promise<number> {
+    const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 500);
+    const processingCutoff = new Date(now.getTime() - PROCESSING_RECOVERY_STALE_MS).toISOString();
+    const result = await this.db
+      .prepare(
+        `UPDATE deliveries
+        SET status = 'failed',
+            error_code = 'send_status_unknown',
+            error_message = 'Delivery was still processing after stale cutoff; manual reconciliation required',
+            updated_at = ?2
+        WHERE rowid IN (
+          SELECT deliveries.rowid
+          FROM deliveries
+          WHERE (
+              deliveries.delivery_type IN ('opening', 'comment_reply', 'opening_failure_reply', 'final')
+              OR deliveries.delivery_type LIKE 'button_step:%'
+            )
+            AND deliveries.status = 'processing'
+            AND deliveries.updated_at < ?1
+          ORDER BY deliveries.updated_at ASC
+          LIMIT ?3
+        )`
+      )
+      .bind(processingCutoff, now.toISOString(), safeLimit)
       .run();
 
     return Number(result.meta.changes ?? 0);

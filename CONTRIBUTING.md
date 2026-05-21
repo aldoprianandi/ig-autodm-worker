@@ -20,8 +20,10 @@ Run before opening a PR:
 
 ```bash
 npm run typecheck
-npm test
+npm run infra:validate
+npm run test:coverage
 npm audit --json
+npm audit signatures
 npm run scan:oss
 git diff --check
 ```

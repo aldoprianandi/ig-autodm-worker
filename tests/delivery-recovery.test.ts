@@ -3,9 +3,12 @@ import { recoverStaleDeliveries } from "../src/queue/recovery";
 import type { DeliveryJob } from "../src/types";
 
 describe("delivery recovery", () => {
-  it("re-enqueues stale queued, retrying, or processing delivery rows", async () => {
+  it("re-enqueues stale queued or retrying delivery rows", async () => {
     const jobs: DeliveryJob[] = [];
     const repo = {
+      async markStaleProcessingDeliveriesUnknown() {
+        return 0;
+      },
       async markExhaustedRecoverableDeliveries() {
         return 0;
       },
@@ -105,6 +108,10 @@ describe("delivery recovery", () => {
     const calls: string[] = [];
     const jobs: DeliveryJob[] = [];
     const repo = {
+      async markStaleProcessingDeliveriesUnknown() {
+        calls.push("mark-processing-unknown");
+        return 1;
+      },
       async markExhaustedRecoverableDeliveries() {
         calls.push("mark-exhausted");
         return 2;
@@ -130,7 +137,7 @@ describe("delivery recovery", () => {
     const recovered = await recoverStaleDeliveries(repo, queue as never);
 
     expect(recovered).toBe(1);
-    expect(calls).toEqual(["mark-exhausted", "list-recoverable"]);
+    expect(calls).toEqual(["mark-processing-unknown", "mark-exhausted", "list-recoverable"]);
     expect(jobs).toEqual([
       {
         deliveryId: "campaign-1:user-1:final",

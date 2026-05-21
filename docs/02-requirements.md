@@ -43,12 +43,12 @@ Acceptance criteria:
 
 ### FR4: Opening Message Delivery
 
-The backend must send an opening message after a matched comment.
+The backend must queue an opening message after a matched comment.
 
 Acceptance criteria:
 
 - The opening message contains one action button or quick reply.
-- Campaigns may define up to 3 additional DM button steps before the final prompt.
+- Public admin writes keep `dmSteps` empty; dormant internal support for up to 3 additional DM button steps remains reserved for trusted operator tooling.
 - The message references the matched campaign.
 - Meta API errors are stored with status code, error code, and error message.
 
@@ -59,7 +59,7 @@ The backend must process messaging postbacks, quick replies, or matching button-
 Acceptance criteria:
 
 - The payload maps back to a campaign.
-- Intermediate step interactions queue the next configured button step.
+- Intermediate step interactions can queue the next configured button step only when trusted tooling has inserted `dmSteps`; public admin writes normalize `dmSteps` to `[]`.
 - The user state changes from `commented` or a button-step state to `confirmed` when the final prompt is requested.
 - The final prompt or link is sent only after user interaction.
 
@@ -101,9 +101,11 @@ The backend must retry transient Meta API failures.
 
 Acceptance criteria:
 
-- HTTP `429` and `5xx` responses are queued with exponential backoff.
+- HTTP `429`, `5xx`, local rate-limit, and transient follow-status failures are retried through Cloudflare Queues.
+- Retries use the configured fixed 60-second queue delay.
 - Permanent `4xx` responses are not retried, except rate limits.
-- Retry attempts are capped.
+- Delivery attempts are capped at 5 before the delivery is marked failed.
+- Queue consumer retries are also capped in `wrangler.toml`, with exhausted queue messages routed to the DLQ when configured.
 
 ### FR10: Audit Logging
 
@@ -116,7 +118,7 @@ Acceptance criteria:
 
 ## Non-Functional Requirements
 
-- Reliability: accept webhooks quickly and process sends asynchronously when possible.
+- Reliability: accept webhooks quickly, store intent, and process outbound sends through the queue.
 - Security: no Instagram credentials are stored; OAuth or long-lived API token only.
 - Privacy: retain user-scoped IDs only as long as needed for automation and audit.
 - Cost: stay within Cloudflare free tier for early usage.
@@ -168,7 +170,7 @@ Acceptance criteria:
 - `campaign_id`: text.
 - `ig_user_id`: text.
 - `delivery_type`: text enum: `opening`, `comment_reply`, `opening_failure_reply`, `button_step`, `final`.
-- `status`: text enum: `queued`, `sent`, `failed`, `retrying`.
+- `status`: text enum: `queued`, `processing`, `sent`, `failed`, `retrying`, `waiting_follow`.
 - `meta_message_id`: text nullable.
 - `error_code`: text nullable.
 - `error_message`: text nullable.

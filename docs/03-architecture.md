@@ -10,11 +10,12 @@ flowchart LR
   W --> S["Signature verifier"]
   S --> R["Event router"]
   R --> D1["Cloudflare D1"]
-  R --> Q["Cloudflare Queue"]
+  R --> Q["Delivery Queue"]
+  Q --> Consumer["Queue consumer"]
   Cron["Cloudflare Cron"] --> Poll["Comment poller"]
   Poll --> D1
   Poll --> Q
-  Q --> A["Meta API client"]
+  Consumer --> A["Meta API client"]
   A --> IG["Instagram Messaging API"]
   A --> P["Instagram User Profile API"]
   O["Operator"] --> Admin["Admin API"]
@@ -28,7 +29,7 @@ flowchart LR
 - Router: Hono or minimal Worker request router. Hono is preferred for clarity.
 - Database: Cloudflare D1.
 - Queue: Cloudflare Queues for retryable sends.
-- Cron: Cloudflare scheduled trigger every minute for fallback polling and final delivery.
+- Cron: Cloudflare scheduled trigger every minute for fallback polling, token refresh, cleanup, stale delivery recovery, and optional fallback queueing.
 - Secrets: Cloudflare Worker secrets.
 - Tests: Vitest with Miniflare-compatible unit tests.
 - Optional AI: not enabled in the public template; future feature flag only.
@@ -40,8 +41,14 @@ flowchart LR
 Entrypoint. Registers routes:
 
 - `GET /health`
+- `GET /`
+- `GET /privacy`
+- `GET /terms`
+- `GET /data-deletion`
+- `POST /data-deletion`
 - `GET /webhooks/meta`
 - `POST /webhooks/meta`
+- `GET /admin-ui`
 - `GET /admin/campaigns`
 - `POST /admin/campaigns`
 - `PATCH /admin/campaigns/:id`
@@ -67,8 +74,9 @@ Parses Meta webhook payloads into normalized internal events:
 
 - `comment.created`
 - `message.postback`
-- `message.quick_reply`
 - `message.text`
+
+Quick replies are normalized into `message.postback` events because both carry a campaign payload.
 
 ### `src/meta/api.ts`
 
@@ -104,7 +112,7 @@ Operator API for campaign management and operational checks. Protected by `ADMIN
 
 ### `src/queue/consumer.ts`
 
-Processes queued delivery jobs and retries transient Meta failures.
+Processes queued delivery jobs, claims delivery rows before sending, and retries transient failures with a fixed 60-second queue delay until capped attempts are exhausted.
 
 ### `src/poller/comments.ts`
 
@@ -124,6 +132,8 @@ sequenceDiagram
   participant Meta as Meta Webhook
   participant Worker as Cloudflare Worker
   participant D1 as D1
+  participant Q as Queue
+  participant Consumer as Queue consumer
   participant API as Meta API
 
   User->>Meta: Comment "PROMPT"
@@ -132,10 +142,17 @@ sequenceDiagram
   Worker->>D1: Insert webhook event
   Worker->>D1: Find enabled campaign by media_id and keyword
   Worker->>D1: Upsert contact state = commented
-  Worker->>API: Send opening DM/private reply
-  API-->>Worker: message_id
-  Worker->>D1: Store delivery status = sent
+  Worker->>D1: Create opening delivery status = queued
+  Worker->>Q: Enqueue opening delivery
   Worker-->>Meta: 200 OK
+  Q->>Consumer: Deliver opening job
+  Consumer->>D1: Claim delivery status = processing
+  Consumer->>API: Send opening DM/private reply
+  API-->>Consumer: message_id
+  Consumer->>D1: Store delivery status = sent
+  opt Public reply configured
+    Consumer->>Q: Enqueue comment_reply delivery
+  end
 ```
 
 ## Request Flow: Button Confirmation
@@ -146,6 +163,8 @@ sequenceDiagram
   participant Meta as Meta Webhook
   participant Worker as Cloudflare Worker
   participant D1 as D1
+  participant Q as Queue
+  participant Consumer as Queue consumer
   participant API as Meta API
 
   User->>Meta: Tap button
@@ -155,17 +174,29 @@ sequenceDiagram
   Worker->>D1: Load campaign and contact state
   opt Campaign has another DM step
     Worker->>D1: Queue button_step delivery
-    Worker->>API: Send next button message
+    Worker->>Q: Enqueue button_step delivery
   end
-  Worker->>API: Get user profile follow fields
-  alt User follows business
-    Worker->>API: Send final prompt
-    Worker->>D1: state = delivered
-  else User does not follow
-    Worker->>API: Send follow request
-    Worker->>D1: state = follow_requested
+  opt Final prompt requested
+    Worker->>D1: Queue final delivery
+    Worker->>Q: Enqueue final delivery
   end
   Worker-->>Meta: 200 OK
+  Q->>Consumer: Deliver queued job
+  alt Queued job is button_step
+    Consumer->>API: Send next button message
+    Consumer->>D1: Store button_step status = sent
+  else Queued job is final
+    opt Follow gate enabled
+      Consumer->>API: Get user profile follow fields
+    end
+    alt Follow gate disabled or user follows business
+      Consumer->>API: Send final prompt
+      Consumer->>D1: state = delivered
+    else User does not follow
+      Consumer->>API: Send follow request
+      Consumer->>D1: state = follow_requested
+    end
+  end
 ```
 
 ## Request Flow: Fallback Comment Polling
@@ -197,16 +228,17 @@ Initial deployment:
 
 - One Worker project.
 - One D1 database.
-- One Queue.
+- One delivery Queue plus a DLQ.
 - One Meta app.
 - One Instagram account token stored as Worker secret.
 - One scheduled cron trigger.
+- One single-operator browser admin console at `/admin-ui`.
 
 Future deployment:
 
 - OAuth installation flow for multiple owned accounts.
 - Encrypted token storage per account.
-- Dedicated admin UI.
+- More operator reporting, exports, and DLQ replay tooling.
 
 ## Key Design Decisions
 
@@ -228,7 +260,7 @@ Reason: relational uniqueness constraints are useful for idempotency and deliver
 
 ### Decision 5: Queue for Outbound Sends
 
-Reason: Meta can retry webhooks if the backend is slow. Accept quickly, store intent, and send through a retryable path.
+Reason: Meta can retry webhooks if the backend is slow. Webhook routes accept quickly, store intent, enqueue delivery work, and let the queue consumer call Meta send endpoints on a retryable path.
 
 ### Decision 6: Fallback Final Delivery
 

@@ -3,6 +3,7 @@ import { isAutomationEnabled, metaSendsPerMinute } from "../config";
 import { sentStepState, stepButtonPayload, stepDeliveryType } from "../flows/steps";
 import { selectMessageVariant } from "../flows/variants";
 import { MetaApiClient, type MetaSendResult } from "../meta/api";
+import { redactSensitiveText } from "../security/redaction";
 import { getInstagramAccessToken } from "../token/manager";
 import type { DeliveryJob, Env } from "../types";
 
@@ -88,6 +89,7 @@ export async function processDeliveryJob(
       await repo.markDeliveryFailed(job.deliveryId, "malformed_job", "Opening delivery is missing commentId");
       return "ack";
     }
+    const commentId = job.commentId;
     const claim = await claimDelivery(repo, job.deliveryId);
     if (claim) return claim;
     const outboundDisposition = await ensureOutboundSendAllowed(repo, job, outboundLimit);
@@ -95,14 +97,15 @@ export async function processDeliveryJob(
     const openingText = selectMessageVariant(
       campaign.openingText,
       campaign.openingTextVariants,
-      `${job.campaignId}:${job.igUserId}:${job.commentId}:opening`
+      `${job.campaignId}:${job.igUserId}:${commentId}:opening`
     );
     if (!openingText) {
       await repo.markDeliveryFailed(job.deliveryId, "malformed_campaign", "Opening delivery text is missing");
       return "ack";
     }
-    const result = await meta.sendOpening(job.commentId, campaign, openingText);
-    return handleOpeningSendResult(repo, job, result, job.commentId, campaign, queue);
+    const result = await runRetryableMetaCall(repo, job, () => meta.sendOpening(commentId, campaign, openingText));
+    if (isDeliveryDisposition(result)) return result;
+    return handleOpeningSendResult(repo, job, result, commentId, campaign, queue);
   }
 
   if (job.deliveryType === "comment_reply" || job.deliveryType === "opening_failure_reply") {
@@ -110,13 +113,15 @@ export async function processDeliveryJob(
       await repo.markDeliveryFailed(job.deliveryId, "malformed_job", "Comment reply delivery is missing commentId");
       return "ack";
     }
+    const commentId = job.commentId;
     const commentReplyText = publicReplyTextForJob(campaign, job);
     if (!commentReplyText) return "ack";
     const claim = await claimDelivery(repo, job.deliveryId);
     if (claim) return claim;
     const outboundDisposition = await ensureOutboundSendAllowed(repo, job, outboundLimit);
     if (outboundDisposition) return outboundDisposition;
-    const result = await meta.replyToComment(job.commentId, commentReplyText);
+    const result = await runRetryableMetaCall(repo, job, () => meta.replyToComment(commentId, commentReplyText));
+    if (isDeliveryDisposition(result)) return result;
     return handleSendResult(repo, job, result);
   }
 
@@ -144,12 +149,15 @@ export async function processDeliveryJob(
       await repo.markDeliveryFailed(job.deliveryId, "malformed_campaign", "Button step text is missing");
       return "ack";
     }
-    const result = await meta.sendButtonMessage(
-      job.igUserId,
-      stepText,
-      step.buttonTitle,
-      stepButtonPayload(campaign, stepIndex)
+    const result = await runRetryableMetaCall(repo, job, () =>
+      meta.sendButtonMessage(
+        job.igUserId,
+        stepText,
+        step.buttonTitle,
+        stepButtonPayload(campaign, stepIndex)
+      )
     );
+    if (isDeliveryDisposition(result)) return result;
     return handleButtonStepSendResult(repo, job, result, campaign, stepIndex, queue);
   }
 
@@ -172,7 +180,8 @@ export async function processDeliveryJob(
       );
     }
 
-    const profile = await meta.getUserProfile(job.igUserId);
+    const profile = await runRetryableMetaCall(repo, job, () => meta.getUserProfile(job.igUserId));
+    if (isDeliveryDisposition(profile)) return profile;
 
     if (profile.isUserFollowBusiness === null) {
       return markDeliveryRetrying(
@@ -186,12 +195,15 @@ export async function processDeliveryJob(
     if (profile.isUserFollowBusiness !== true) {
       const outboundDisposition = await ensureOutboundSendAllowed(repo, job, outboundLimit);
       if (outboundDisposition) return outboundDisposition;
-      const result = await meta.sendButtonMessage(
-        job.igUserId,
-        followGateInstruction(followGateButtonTitle(campaign), campaign.followGateText),
-        followGateButtonTitle(campaign),
-        campaign.buttonPayload
+      const result = await runRetryableMetaCall(repo, job, () =>
+        meta.sendButtonMessage(
+          job.igUserId,
+          followGateInstruction(followGateButtonTitle(campaign), campaign.followGateText),
+          followGateButtonTitle(campaign),
+          campaign.buttonPayload
+        )
       );
+      if (isDeliveryDisposition(result)) return result;
 
       if (!result.ok) {
         return handleSendResult(repo, job, result);
@@ -210,8 +222,30 @@ export async function processDeliveryJob(
 
   const outboundDisposition = await ensureOutboundSendAllowed(repo, job, outboundLimit);
   if (outboundDisposition) return outboundDisposition;
-  const result = await meta.sendText(job.igUserId, campaign.deliveryText);
+  const result = await runRetryableMetaCall(repo, job, () => meta.sendText(job.igUserId, campaign.deliveryText));
+  if (isDeliveryDisposition(result)) return result;
   return handleSendResult(repo, job, result, "delivered");
+}
+
+async function runRetryableMetaCall<T>(
+  repo: DeliveryRepository,
+  job: DeliveryJob,
+  operation: () => Promise<T>
+): Promise<T | DeliveryDisposition> {
+  try {
+    return await operation();
+  } catch (error) {
+    return markDeliveryRetrying(repo, job, "delivery_exception", unexpectedDeliveryErrorMessage(error));
+  }
+}
+
+function isDeliveryDisposition(value: unknown): value is DeliveryDisposition {
+  return value === "ack" || value === "retry";
+}
+
+function unexpectedDeliveryErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `Unexpected delivery error: ${redactSensitiveText(message)}`;
 }
 
 function followGateInstruction(buttonTitle: string, customText?: string | null): string {

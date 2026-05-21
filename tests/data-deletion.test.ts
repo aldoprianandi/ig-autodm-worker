@@ -57,6 +57,40 @@ describe("Meta data deletion callback", () => {
     ]);
     expect(db.events).toHaveLength(1);
     expect(JSON.stringify(db.events[0])).not.toContain("user-1");
+
+    const status = await app.request(`/data-deletion/status/${body.confirmation_code}`, {}, { ...(env as Record<string, unknown>), DB: db } as never);
+    expect(status.status).toBe(200);
+    await expect(status.text()).resolves.toContain("was received and processed");
+  });
+
+  it("returns 404 for unknown data deletion confirmation codes", async () => {
+    const db = createDeletionDb();
+
+    const response = await app.request(
+      "/data-deletion/status/00000000-0000-4000-8000-000000000000",
+      {},
+      { ...(env as Record<string, unknown>), DB: db } as never
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.text()).resolves.toContain("was not found");
+  });
+
+  it("rejects malformed deletion confirmation codes before querying D1", async () => {
+    const db = {
+      prepare() {
+        throw new Error("D1 should not be queried for malformed confirmation codes");
+      }
+    };
+
+    const response = await app.request(
+      "/data-deletion/status/not-a-confirmation-code",
+      {},
+      { ...(env as Record<string, unknown>), DB: db } as never
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.text()).resolves.toContain("was not found");
   });
 
   it("rejects invalid signed requests without deleting data", async () => {
@@ -171,6 +205,18 @@ function createDeletionDb() {
       return {
         bind(...params: unknown[]) {
           return {
+            async first() {
+              if (sql.includes("data_deletion_requested")) {
+                const code = String(params[0]);
+                return db.events.some((event) => {
+                  const metadata = typeof event[4] === "string" ? JSON.parse(event[4]) as { confirmationCode?: string } : {};
+                  return metadata.confirmationCode === code;
+                })
+                  ? { ok: 1 }
+                  : null;
+              }
+              return null;
+            },
             async run() {
               if (sql.startsWith("DELETE")) {
                 db.deletes.push([sql, String(params[0])]);

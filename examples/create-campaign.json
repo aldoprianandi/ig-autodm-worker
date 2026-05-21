@@ -19,5 +19,5 @@
   ],
   "openingFailureReplyText": "I could not send the DM. Please check your message request settings.",
   "followGateEnabled": false,
-  "enabled": true
+  "enabled": false
 }

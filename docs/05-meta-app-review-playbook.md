@@ -22,16 +22,25 @@ Use Facebook Login only if the account or selected Meta product flow blocks an I
 2. Create a Business app.
 3. Add the Instagram product.
 4. Configure Instagram API with Instagram Login.
-5. Add redirect URI:
-   - `https://<worker-subdomain>.workers.dev/auth/instagram/callback`
-6. Configure webhook callback:
+5. Do not use `https://<worker-subdomain>.workers.dev/auth/instagram/callback` as a redirect URI for this template. The route is not implemented.
+6. For single-account development, generate an Instagram user access token in the App Dashboard for the connected Business or Creator test account.
+7. Resolve the connected account ID with a private terminal or Meta API tool:
+
+```bash
+read -r -s IG_ACCESS_TOKEN
+curl -H "Authorization: Bearer ${IG_ACCESS_TOKEN}" \
+  "https://graph.instagram.com/v25.0/me?fields=user_id,username"
+unset IG_ACCESS_TOKEN
+```
+
+8. Store the token in Cloudflare secret `INSTAGRAM_ACCESS_TOKEN` and the returned `user_id` in `INSTAGRAM_ACCOUNT_ID`.
+9. Configure webhook callback:
    - `https://<worker-subdomain>.workers.dev/webhooks/meta`
-7. Set webhook verify token to the same value stored in `META_VERIFY_TOKEN`.
-8. Subscribe to comments and messaging-related webhook fields required by the selected Meta product.
-9. Add the operator account and test account as app roles or testers.
-10. Connect the Instagram Business or Creator account.
-11. Generate or exchange an access token for development.
-12. Store the token in Cloudflare secret `INSTAGRAM_ACCESS_TOKEN`.
+10. Set webhook verify token to the same value stored in `META_VERIFY_TOKEN`.
+11. Subscribe to comments and messaging-related webhook fields required by the selected Meta product.
+12. Add the operator account and test account as app roles or testers.
+13. Keep `AUTOMATION_ENABLED=false` until the Worker URL, webhook challenge, admin login, and one disabled/draft campaign are verified.
+14. Set `AUTOMATION_ENABLED=true` only for the controlled tester flow.
 
 ## Pre-Review Build Requirements
 
@@ -45,7 +54,7 @@ The app must show all requested permissions in use:
 
 Record one continuous video with these scenes:
 
-1. Open the app admin screen or simple campaign config endpoint.
+1. Open `/admin-ui` and log in with placeholder-safe test credentials.
 2. Show a campaign configured for:
    - media ID.
    - keyword `PROMPT`.
