@@ -77,7 +77,7 @@ describe("MetaApiClient", () => {
     });
   });
 
-  it("treats temporary message-window blocks as retryable", async () => {
+  it("does not retry message-window policy blocks", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -93,7 +93,7 @@ describe("MetaApiClient", () => {
 
     expect(result).toEqual({
       ok: false,
-      retryable: true,
+      retryable: false,
       code: "10",
       message: "This message is sent outside of allowed window."
     });

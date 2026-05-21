@@ -121,6 +121,11 @@ export type UserDataDeleteCounts = {
   webhookEvents: number;
 };
 
+export type DataDeletionRequestClaim =
+  | { status: "claimed" }
+  | { status: "completed"; confirmationCode: string | null }
+  | { status: "processing" };
+
 export type OperationalDashboard = {
   counts: {
     campaigns: number;
@@ -137,6 +142,7 @@ export type OperationalDashboard = {
 const CLEANUP_BATCH_LIMIT = 500;
 const QUEUE_RECOVERY_STALE_MS = 2 * 60 * 1000;
 const PROCESSING_RECOVERY_STALE_MS = 5 * 60 * 1000;
+const DATA_DELETION_PROCESSING_STALE_MS = 10 * 60 * 1000;
 const CLEANUP_TARGETS = {
   webhookEvents: {
     sql: "DELETE FROM webhook_events WHERE rowid IN (SELECT rowid FROM webhook_events WHERE processed_at < ?1 LIMIT ?2)"
@@ -409,17 +415,73 @@ export class Repository {
     return { adminAuditLogs, contactStates, deliveries, operationalEvents, webhookEvents };
   }
 
-  async claimDataDeletionRequest(requestHash: string): Promise<boolean> {
-    const result = await this.db
+  async claimDataDeletionRequest(requestHash: string, now = new Date()): Promise<DataDeletionRequestClaim> {
+    const nowIso = now.toISOString();
+    const staleProcessingCutoff = new Date(now.getTime() - DATA_DELETION_PROCESSING_STALE_MS).toISOString();
+    const inserted = await this.db
       .prepare(
         `INSERT OR IGNORE INTO data_deletion_requests
-        (request_hash, created_at)
-        VALUES (?1, ?2)`
+        (request_hash, status, created_at, updated_at)
+        VALUES (?1, 'processing', ?2, ?2)`
       )
-      .bind(requestHash, new Date().toISOString())
+      .bind(requestHash, nowIso)
       .run();
 
-    return Number(result.meta.changes ?? 0) === 1;
+    if (Number(inserted.meta.changes ?? 0) === 1) {
+      return { status: "claimed" };
+    }
+
+    const reclaimed = await this.db
+      .prepare(
+        `UPDATE data_deletion_requests
+        SET status = 'processing',
+            updated_at = ?2
+        WHERE request_hash = ?1
+          AND status != 'completed'
+          AND updated_at < ?3`
+      )
+      .bind(requestHash, nowIso, staleProcessingCutoff)
+      .run();
+
+    if (Number(reclaimed.meta.changes ?? 0) === 1) {
+      return { status: "claimed" };
+    }
+
+    const row = await this.db
+      .prepare("SELECT status, confirmation_code FROM data_deletion_requests WHERE request_hash = ?1")
+      .bind(requestHash)
+      .first<Record<string, unknown>>();
+
+    if (row?.status === "completed") {
+      return {
+        status: "completed",
+        confirmationCode: row.confirmation_code == null ? null : String(row.confirmation_code)
+      };
+    }
+
+    return { status: "processing" };
+  }
+
+  async completeDataDeletionRequest(requestHash: string, confirmationCode: string): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db
+      .prepare(
+        `UPDATE data_deletion_requests
+        SET status = 'completed',
+            confirmation_code = ?2,
+            completed_at = ?3,
+            updated_at = ?3
+        WHERE request_hash = ?1`
+      )
+      .bind(requestHash, confirmationCode, now)
+      .run();
+  }
+
+  async releaseDataDeletionRequest(requestHash: string): Promise<void> {
+    await this.db
+      .prepare("DELETE FROM data_deletion_requests WHERE request_hash = ?1 AND status = 'processing'")
+      .bind(requestHash)
+      .run();
   }
 
   async dataDeletionConfirmationExists(confirmationCode: string): Promise<boolean> {

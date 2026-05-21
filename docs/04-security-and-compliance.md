@@ -115,6 +115,7 @@ Rules:
 - Respect Meta messaging windows and private reply limits.
 - Do not send repeated identical messages to the same user for the same trigger.
 - Do not promise guaranteed delivery when Meta rate limits or rejects messages.
+- Treat Meta policy/window send errors as terminal failures that need user/operator action, not automatic retries.
 
 ### Rate Limiting
 

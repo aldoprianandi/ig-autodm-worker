@@ -40,7 +40,7 @@ Terms of service page for Meta App Review.
 
 ### `GET /data-deletion`
 
-Human-readable data deletion instructions.
+Human-readable data deletion instructions. `/data_deletion` is also supported as a Meta dashboard compatibility alias.
 
 ### `POST /data-deletion`
 
@@ -58,6 +58,7 @@ Behavior:
 - Requires `user_id` in the signed payload.
 - Deletes matching `deliveries`, `contact_states`, and `webhook_events` rows for that Instagram user ID.
 - Records an operational event with deletion counts and a confirmation code.
+- Stores the signed request hash as `processing` during deletion and marks it `completed` only after the deletion event is durable. A successful replay returns the same confirmation response; a failed in-flight deletion releases the claim so Meta can retry.
 
 Response:
 
@@ -67,6 +68,10 @@ Response:
   "confirmation_code": "<uuid>"
 }
 ```
+
+### `GET /data-deletion/status/:code`
+
+Returns an HTML status page for a deletion confirmation code. Malformed or unknown codes return `404` without exposing stored user data.
 
 ### OAuth Callback
 
@@ -166,6 +171,24 @@ Resumes an existing browser admin session after refresh, validates the user-agen
 
 Revokes the current browser admin session and clears the cookie. Requires the session cookie and matching `X-CSRF-Token`.
 
+### `GET /admin/bootstrap`
+
+Returns the protected browser dashboard bootstrap payload after auth:
+
+```json
+{
+  "dashboard": {
+    "counts": {},
+    "token": null,
+    "limits": {}
+  },
+  "campaigns": [],
+  "templates": []
+}
+```
+
+Use this after `GET /admin/session` refreshes CSRF. The session resume endpoint intentionally does not return campaign, template, or dashboard data.
+
 ## Campaigns
 
 ### `GET /admin/campaigns`
@@ -245,6 +268,46 @@ Behavior:
 - Requeues only a `waiting_follow` final delivery for that campaign/user pair.
 - Sends a new `final` job to `DELIVERY_QUEUE`.
 
+## Admin Operations
+
+### `GET /admin/dashboard`
+
+Returns operational counts, token status metadata, and runtime limit settings. It never returns token values.
+
+### `GET /admin/audit-logs?limit=50`
+
+Returns recent admin audit log rows. `limit` is clamped server-side.
+
+### `GET /admin/subscription`
+
+Fetches current Meta subscribed-app fields for `INSTAGRAM_ACCOUNT_ID`.
+
+Possible upstream failure:
+
+```json
+{
+  "error": "Instagram subscription fetch failed",
+  "upstreamStatus": 400,
+  "upstreamError": {}
+}
+```
+
+### `POST /admin/subscription`
+
+Updates Meta webhook subscribed fields. If the request body is omitted, the default fields are `comments`, `messages`, and `messaging_postbacks`.
+
+```json
+{
+  "fields": ["comments", "messages", "messaging_postbacks"]
+}
+```
+
+Response:
+
+```json
+{"ok": true, "subscribedFields": ["comments", "messages", "messaging_postbacks"]}
+```
+
 ## Admin Media Helpers
 
 ### `GET /admin/media`
@@ -302,6 +365,7 @@ Polling is a fallback. Webhooks are the primary ingestion path; high-comment spi
 - Outbound sends run through `DELIVERY_QUEUE`, not synchronously inside webhook requests.
 - Retryable failures use a fixed 60-second queue retry delay.
 - Delivery attempts are capped at 5 before the row is marked `failed`.
+- Meta policy/window errors such as messages outside the allowed window are treated as terminal delivery failures, not retried.
 - The example Queue consumer also sets `max_retries=5`; app-level Meta retry exhaustion usually marks D1 `deliveries` as `failed`, while the configured DLQ is for unacked/platform-level consumer exhaustion.
 
 ## Delivery Types

@@ -13,6 +13,7 @@ import migration0010 from "../migrations/0010_follow_gate_text.sql?raw";
 import migration0011 from "../migrations/0011_follow_gate_button_title.sql?raw";
 import migration0012 from "../migrations/0012_opening_failure_reply_text.sql?raw";
 import migration0013 from "../migrations/0013_data_deletion_replay.sql?raw";
+import migration0014 from "../migrations/0014_data_deletion_status.sql?raw";
 import { Repository, type Campaign } from "../src/db/repository";
 import { app } from "../src/index";
 import { processDeliveryBatch } from "../src/queue/consumer";
@@ -33,7 +34,8 @@ const migrations = [
   migration0010,
   migration0011,
   migration0012,
-  migration0013
+  migration0013,
+  migration0014
 ];
 
 const campaign: Campaign = {

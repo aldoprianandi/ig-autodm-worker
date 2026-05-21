@@ -258,7 +258,7 @@ function mapComment(value: unknown): MetaComment {
 function isRetryableMetaError(status: number, code: string, message: string): boolean {
   const normalized = message.toLowerCase();
   if (normalized.includes("outside of allowed window")) {
-    return true;
+    return false;
   }
 
   if (isPermanentMetaSendCode(code) || isPermanentMetaSendMessage(normalized)) {

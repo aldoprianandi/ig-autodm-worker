@@ -160,6 +160,9 @@ Keep `AUTOMATION_ENABLED=false` for the first deploy. After health, webhook veri
 - [API Reference](docs/09-api-reference.md)
 - [Feature Matrix](docs/10-feature-matrix.md)
 - [Runbook](docs/runbook.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security Policy](SECURITY.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
 
 ## License
 

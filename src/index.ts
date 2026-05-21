@@ -152,26 +152,35 @@ app.post("/data-deletion", async (c) => {
 
   const repo = new Repository(c.env.DB);
   const replayHash = await sha256Hex(signedRequestValue ?? "");
-  const claimed = await repo.claimDataDeletionRequest(replayHash);
-  if (!claimed) {
-    return c.json({ error: "Data deletion request was already processed" }, 409);
+  const claim = await repo.claimDataDeletionRequest(replayHash);
+  if (claim.status === "completed") {
+    if (!claim.confirmationCode) {
+      return c.json({ error: "Data deletion request was already processed" }, 409);
+    }
+    return dataDeletionJson(c, claim.confirmationCode);
+  }
+  if (claim.status === "processing") {
+    return c.json({ error: "Data deletion request is already processing" }, 409);
   }
 
-  const deleted = await repo.deleteUserData(userId);
-  const confirmationCode = crypto.randomUUID();
-  await repo.insertOperationalEvent({
-    eventType: "data_deletion_requested",
-    status: "ok",
-    metadata: {
-      confirmationCode,
-      deleted
-    }
-  });
+  try {
+    const deleted = await repo.deleteUserData(userId);
+    const confirmationCode = crypto.randomUUID();
+    await repo.insertOperationalEvent({
+      eventType: "data_deletion_requested",
+      status: "ok",
+      metadata: {
+        confirmationCode,
+        deleted
+      }
+    });
+    await repo.completeDataDeletionRequest(replayHash, confirmationCode);
 
-  return c.json({
-    url: new URL(`/data-deletion/status/${confirmationCode}`, c.req.url).toString(),
-    confirmation_code: confirmationCode
-  });
+    return dataDeletionJson(c, confirmationCode);
+  } catch (error) {
+    await repo.releaseDataDeletionRequest(replayHash);
+    throw error;
+  }
 });
 
 app.get("/data-deletion/status/:code", async (c) => {
@@ -193,6 +202,13 @@ function dataDeletionStatusResponse(found: boolean): Response {
       : `<h1>Data Deletion Status</h1><p>The deletion request was not found.</p>`,
     found ? 200 : 404
   );
+}
+
+function dataDeletionJson(c: { req: { url: string }; json: (data: unknown) => Response }, confirmationCode: string): Response {
+  return c.json({
+    url: new URL(`/data-deletion/status/${confirmationCode}`, c.req.url).toString(),
+    confirmation_code: confirmationCode
+  });
 }
 
 app.get("/webhooks/meta", (c) => {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { app } from "../src/index";
 import repositorySource from "../src/db/repository.ts?raw";
 import migration0001 from "../migrations/0001_initial.sql?raw";
@@ -14,6 +14,7 @@ import migration0010 from "../migrations/0010_follow_gate_text.sql?raw";
 import migration0011 from "../migrations/0011_follow_gate_button_title.sql?raw";
 import migration0012 from "../migrations/0012_opening_failure_reply_text.sql?raw";
 import migration0013 from "../migrations/0013_data_deletion_replay.sql?raw";
+import migration0014 from "../migrations/0014_data_deletion_status.sql?raw";
 
 const appSecret = "test-meta-app-secret-with-enough-entropy";
 const env = {
@@ -135,7 +136,7 @@ describe("Meta data deletion callback", () => {
     expect(db.events).toEqual([]);
   });
 
-  it("rejects replayed signed deletion requests without deleting twice", async () => {
+  it("returns the same confirmation for replayed completed deletion requests without deleting twice", async () => {
     const db = createDeletionDb();
     const signedRequest = await createSignedRequest(
       { algorithm: "HMAC-SHA256", user_id: "user-1", issued_at: currentIssuedAt() },
@@ -162,9 +163,49 @@ describe("Meta data deletion callback", () => {
     );
 
     expect(first.status).toBe(200);
-    expect(second.status).toBe(409);
-    await expect(second.json()).resolves.toEqual({ error: "Data deletion request was already processed" });
+    expect(second.status).toBe(200);
+    const firstBody = await first.json();
+    await expect(second.json()).resolves.toEqual(firstBody);
     expect(db.deletes).toHaveLength(5);
+    expect(db.events).toHaveLength(1);
+  });
+
+  it("releases an in-flight deletion claim when deletion fails so Meta can retry", async () => {
+    const db = createDeletionDb();
+    db.failNextDelete = true;
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const signedRequest = await createSignedRequest(
+      { algorithm: "HMAC-SHA256", user_id: "user-1", issued_at: currentIssuedAt() },
+      appSecret
+    );
+
+    let first: Response;
+    try {
+      first = await app.request(
+        "/data-deletion",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ signed_request: signedRequest }).toString()
+        },
+        { ...(env as Record<string, unknown>), DB: db } as never
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    const second = await app.request(
+      "/data-deletion",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ signed_request: signedRequest }).toString()
+      },
+      { ...(env as Record<string, unknown>), DB: db } as never
+    );
+
+    expect(first.status).toBe(500);
+    expect(second.status).toBe(200);
     expect(db.events).toHaveLength(1);
   });
 
@@ -182,7 +223,8 @@ describe("Meta data deletion callback", () => {
       migration0010,
       migration0011,
       migration0012,
-      migration0013
+      migration0013,
+      migration0014
     ].join("\n");
     const tablesWithUserIds = [...tableSql.matchAll(/CREATE TABLE (\w+) \(([\s\S]*?)\);/g)]
       .filter((match) => /\b(?:ig_)?user_id\b/.test(match[2]))
@@ -200,12 +242,19 @@ function createDeletionDb() {
   const db = {
     deletes: [] as Array<[string, string]>,
     events: [] as unknown[][],
-    replayHashes: new Set<string>(),
+    replayRequests: new Map<string, { status: string; confirmationCode: string | null; updatedAt: string }>(),
+    failNextDelete: false,
     prepare(sql: string) {
       return {
         bind(...params: unknown[]) {
           return {
             async first() {
+              if (sql.includes("SELECT status, confirmation_code FROM data_deletion_requests")) {
+                const request = db.replayRequests.get(String(params[0]));
+                return request
+                  ? { status: request.status, confirmation_code: request.confirmationCode }
+                  : null;
+              }
               if (sql.includes("data_deletion_requested")) {
                 const code = String(params[0]);
                 return db.events.some((event) => {
@@ -219,13 +268,41 @@ function createDeletionDb() {
             },
             async run() {
               if (sql.startsWith("DELETE")) {
-                db.deletes.push([sql, String(params[0])]);
+                if (sql.includes("data_deletion_requests")) {
+                  const request = db.replayRequests.get(String(params[0]));
+                  if (request?.status === "processing") db.replayRequests.delete(String(params[0]));
+                } else {
+                  if (db.failNextDelete) {
+                    db.failNextDelete = false;
+                    throw new Error("delete failed");
+                  }
+                  db.deletes.push([sql, String(params[0])]);
+                }
               }
               if (sql.includes("INSERT OR IGNORE INTO data_deletion_requests")) {
                 const hash = String(params[0]);
-                if (db.replayHashes.has(hash)) return { meta: { changes: 0 } };
-                db.replayHashes.add(hash);
+                if (db.replayRequests.has(hash)) return { meta: { changes: 0 } };
+                db.replayRequests.set(hash, { status: "processing", confirmationCode: null, updatedAt: String(params[1]) });
                 return { meta: { changes: 1 } };
+              }
+              if (sql.includes("UPDATE data_deletion_requests") && sql.includes("status = 'processing'")) {
+                const hash = String(params[0]);
+                const request = db.replayRequests.get(hash);
+                if (request && request.status !== "completed") {
+                  request.updatedAt = String(params[1]);
+                  return { meta: { changes: 1 } };
+                }
+                return { meta: { changes: 0 } };
+              }
+              if (sql.includes("UPDATE data_deletion_requests") && sql.includes("status = 'completed'")) {
+                const hash = String(params[0]);
+                const request = db.replayRequests.get(hash);
+                if (request) {
+                  request.status = "completed";
+                  request.confirmationCode = String(params[1]);
+                  request.updatedAt = String(params[2]);
+                }
+                return { meta: { changes: request ? 1 : 0 } };
               }
               if (sql.includes("INSERT INTO operational_events")) {
                 db.events.push(params);
