@@ -119,7 +119,9 @@ export async function queueFinalDeliveriesAfterLastStep(
   repo: LastStepFinalDeliveryRepository,
   queue: Queue<DeliveryJob>
 ): Promise<number> {
-  return queueFinalDeliveries(await repo.listLastStepSentWithoutFinal(), repo, queue);
+  void repo;
+  void queue;
+  return 0;
 }
 
 async function queueFinalDeliveries(

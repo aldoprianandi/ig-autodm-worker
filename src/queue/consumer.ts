@@ -90,7 +90,8 @@ export async function processDeliveryJob(
     }
     const claim = await claimDelivery(repo, job.deliveryId);
     if (claim) return claim;
-    if (!(await ensureOutboundSendAllowed(repo, job, outboundLimit))) return "retry";
+    const outboundDisposition = await ensureOutboundSendAllowed(repo, job, outboundLimit);
+    if (outboundDisposition) return outboundDisposition;
     const openingText = selectMessageVariant(
       campaign.openingText,
       campaign.openingTextVariants,
@@ -113,7 +114,8 @@ export async function processDeliveryJob(
     if (!commentReplyText) return "ack";
     const claim = await claimDelivery(repo, job.deliveryId);
     if (claim) return claim;
-    if (!(await ensureOutboundSendAllowed(repo, job, outboundLimit))) return "retry";
+    const outboundDisposition = await ensureOutboundSendAllowed(repo, job, outboundLimit);
+    if (outboundDisposition) return outboundDisposition;
     const result = await meta.replyToComment(job.commentId, commentReplyText);
     return handleSendResult(repo, job, result);
   }
@@ -131,7 +133,8 @@ export async function processDeliveryJob(
     }
     const claim = await claimDelivery(repo, job.deliveryId);
     if (claim) return claim;
-    if (!(await ensureOutboundSendAllowed(repo, job, outboundLimit))) return "retry";
+    const outboundDisposition = await ensureOutboundSendAllowed(repo, job, outboundLimit);
+    if (outboundDisposition) return outboundDisposition;
     const stepText = selectMessageVariant(
       step.text,
       step.textVariants,
@@ -161,27 +164,28 @@ export async function processDeliveryJob(
   if (job.deliveryType === "final" && campaign.followGateEnabled) {
     const readAllowed = await repo.tryConsumeOutboundRateLimit("instagram_read", Math.max(outboundLimit, 30), 60);
     if (!readAllowed) {
-      await repo.markDeliveryRetrying(
-        job.deliveryId,
+      return markDeliveryRetrying(
+        repo,
+        job,
         "local_read_rate_limited",
         "Local Meta read rate limit reached"
       );
-      return "retry";
     }
 
     const profile = await meta.getUserProfile(job.igUserId);
 
     if (profile.isUserFollowBusiness === null) {
-      await repo.markDeliveryRetrying(
-        job.deliveryId,
+      return markDeliveryRetrying(
+        repo,
+        job,
         "follow_status_unknown",
         "Could not verify follow status before final delivery"
       );
-      return "retry";
     }
 
     if (profile.isUserFollowBusiness !== true) {
-      if (!(await ensureOutboundSendAllowed(repo, job, outboundLimit))) return "retry";
+      const outboundDisposition = await ensureOutboundSendAllowed(repo, job, outboundLimit);
+      if (outboundDisposition) return outboundDisposition;
       const result = await meta.sendButtonMessage(
         job.igUserId,
         followGateInstruction(followGateButtonTitle(campaign), campaign.followGateText),
@@ -204,7 +208,8 @@ export async function processDeliveryJob(
     }
   }
 
-  if (!(await ensureOutboundSendAllowed(repo, job, outboundLimit))) return "retry";
+  const outboundDisposition = await ensureOutboundSendAllowed(repo, job, outboundLimit);
+  if (outboundDisposition) return outboundDisposition;
   const result = await meta.sendText(job.igUserId, campaign.deliveryText);
   return handleSendResult(repo, job, result, "delivered");
 }
@@ -235,16 +240,26 @@ async function ensureOutboundSendAllowed(
   repo: DeliveryRepository,
   job: DeliveryJob,
   outboundLimit: number
-): Promise<boolean> {
+): Promise<DeliveryDisposition | null> {
   const allowed = await repo.tryConsumeOutboundRateLimit("instagram_send", outboundLimit, 60);
-  if (allowed) return true;
+  if (allowed) return null;
 
-  await repo.markDeliveryRetrying(
-    job.deliveryId,
+  return markDeliveryRetrying(
+    repo,
+    job,
     "local_rate_limited",
     "Local outbound Meta send rate limit reached"
   );
-  return false;
+}
+
+async function markDeliveryRetrying(
+  repo: DeliveryRepository,
+  job: DeliveryJob,
+  code: string,
+  message: string
+): Promise<DeliveryDisposition> {
+  const retrying = await repo.markDeliveryRetrying(job.deliveryId, code, message);
+  return retrying === false ? "ack" : "retry";
 }
 
 async function handleSendResult(
@@ -268,8 +283,7 @@ async function handleSendResult(
   }
 
   if (result.retryable) {
-    await repo.markDeliveryRetrying(job.deliveryId, result.code, result.message);
-    return "retry";
+    return markDeliveryRetrying(repo, job, result.code, result.message);
   }
 
   await repo.markDeliveryFailed(job.deliveryId, result.code, result.message);
@@ -320,10 +334,6 @@ async function handleOpeningSendResult(
     }
   }
 
-  if (queue && campaign.dmSteps.length) {
-    await queueButtonStep(repo, queue, job.campaignId, job.igUserId, 0);
-  }
-
   return "ack";
 }
 
@@ -344,14 +354,8 @@ async function handleButtonStepSendResult(
     state: sentStepState(stepIndex)
   });
 
-  if (!queue) return "ack";
-
-  const nextStepIndex = stepIndex + 1;
-  if (campaign.dmSteps[nextStepIndex]) {
-    await queueButtonStep(repo, queue, job.campaignId, job.igUserId, nextStepIndex);
-  } else {
-    await queueFinal(repo, queue, job.campaignId, job.igUserId);
-  }
+  void campaign;
+  void queue;
 
   return "ack";
 }
@@ -441,29 +445,4 @@ function isRecipientUnavailableError(result: Extract<MetaSendResult, { ok: false
     normalized.includes("invalid for a private reply") ||
     (normalized.includes("private reply") && normalized.includes("comment id"))
   );
-}
-
-async function queueFinal(
-  repo: DeliveryRepository,
-  queue: DeliveryQueue,
-  campaignId: string,
-  igUserId: string
-): Promise<void> {
-  const deliveryId = `${campaignId}:${igUserId}:final`;
-  const created = await repo.createDelivery({
-    id: deliveryId,
-    campaignId,
-    igUserId,
-    deliveryType: "final",
-    status: "queued"
-  });
-
-  if (!created) return;
-
-  await queue.send({
-    deliveryId,
-    campaignId,
-    igUserId,
-    deliveryType: "final"
-  });
 }

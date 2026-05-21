@@ -9,7 +9,7 @@
 | Comment keyword trigger | Live | Campaigns match by exact media ID plus configured keyword; multi-word keywords require every token, with small typo tolerance. |
 | Opening private reply | Live | Sent through Instagram Messaging API using `recipient.comment_id`. |
 | Public comment acknowledgement | Live | Cron queues `comment_reply` after opening DM delivery is marked `sent`; duplicate keys prevent repeat replies. |
-| Message variants | Live | Opening DM, public comment replies, and intermediate DM step messages support per-campaign variant pools with deterministic random selection per user/comment/step. |
+| Message variants | Live | Opening DM and public comment replies support per-campaign variant pools with deterministic random selection per user/comment. Intermediate DM step variants are dormant while multi-step saves are locked off. |
 | Reusable variant template library | Live | Opening DM and public reply templates are stored in D1, searchable in `/admin-ui`, and saved in bulk from the dashboard. |
 | Button template | Live | Sent in opening message; the public safety profile uses a postback button that queues the final prompt/link DM after user tap. |
 | Multi-step DM buttons | Locked off | Campaign saves force an empty step list while the public template stays to one button tap before the final DM. |

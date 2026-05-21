@@ -12,4 +12,10 @@ describe("secret box", () => {
     expect(encrypted.ciphertext).not.toContain("ig-token-secret");
     expect(encrypted.iv).toMatch(/^[A-Za-z0-9+/]+=*$/);
   });
+
+  it("rejects weak token encryption keys", async () => {
+    await expect(encryptSecret("ig-token-secret", "short")).rejects.toThrow(
+      "TOKEN_ENCRYPTION_KEY must be at least 32 characters"
+    );
+  });
 });

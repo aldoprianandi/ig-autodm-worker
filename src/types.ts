@@ -6,6 +6,7 @@ export type Env = {
   META_VERIFY_TOKEN: string;
   INSTAGRAM_ACCESS_TOKEN: string;
   INSTAGRAM_ACCOUNT_ID: string;
+  INSTAGRAM_MESSAGING_ACCOUNT_IDS?: string;
   ADMIN_TOKEN: string;
   ADMIN_LOGIN_USERNAME?: string;
   ADMIN_LOGIN_PASSWORD?: string;

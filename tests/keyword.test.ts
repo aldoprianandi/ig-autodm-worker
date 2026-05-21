@@ -5,6 +5,8 @@ describe("commentMatchesKeyword", () => {
   it("matches exact keywords without caring about case", () => {
     expect(commentMatchesKeyword("pROMPT bang", "PROMPT")).toBe(true);
     expect(commentMatchesKeyword("send Blue Green please", "Blue Green")).toBe(true);
+    expect(commentMatchesKeyword("bus please", "bus")).toBe(true);
+    expect(commentMatchesKeyword("blue-green", "Blue Green")).toBe(true);
   });
 
   it("matches common one-word keyword typos flexibly", () => {
@@ -36,5 +38,17 @@ describe("commentMatchesKeyword", () => {
   it("does not match unrelated words or weak common words from a phrase", () => {
     expect(commentMatchesKeyword("red please", "Blue Green")).toBe(false);
     expect(commentMatchesKeyword("the please", "The Blue")).toBe(false);
+  });
+
+  it("does not match keywords inside larger tokens", () => {
+    expect(commentMatchesKeyword("business", "bus")).toBe(false);
+    expect(commentMatchesKeyword("abuse case", "bus")).toBe(false);
+    expect(commentMatchesKeyword("blue greenhouse", "Blue Green")).toBe(false);
+  });
+
+  it("requires exact token matches for short keywords", () => {
+    expect(commentMatchesKeyword("buy now", "bus")).toBe(false);
+    expect(commentMatchesKeyword("but why", "bus")).toBe(false);
+    expect(commentMatchesKeyword("bus please", "bus")).toBe(true);
   });
 });

@@ -6,6 +6,7 @@ export type EncryptedSecret = {
 
 const AES_ALGORITHM = "AES-GCM";
 const IV_BYTES = 12;
+const MIN_KEY_MATERIAL_CHARS = 32;
 
 export async function encryptSecret(plaintext: string, keyMaterial: string): Promise<EncryptedSecret> {
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
@@ -35,6 +36,9 @@ export async function decryptSecret(secret: { ciphertext: string; iv: string }, 
 async function deriveAesKey(keyMaterial: string, usages: KeyUsage[]): Promise<CryptoKey> {
   if (!keyMaterial.trim()) {
     throw new Error("TOKEN_ENCRYPTION_KEY is required to decrypt stored Instagram tokens");
+  }
+  if (keyMaterial.trim().length < MIN_KEY_MATERIAL_CHARS) {
+    throw new Error("TOKEN_ENCRYPTION_KEY must be at least 32 characters");
   }
 
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(keyMaterial));

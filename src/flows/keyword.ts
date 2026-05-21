@@ -7,10 +7,6 @@ export function commentMatchesKeyword(commentText: string, keyword: string): boo
   const commentTokens = tokenize(commentText);
   if (!commentTokens.length) return false;
 
-  const normalizedComment = commentTokens.join(" ");
-  const normalizedKeyword = keywordTokens.join(" ");
-  if (normalizedComment.includes(normalizedKeyword)) return true;
-
   if (keywordTokens.length === 1) {
     return commentTokens.some((token) => tokensMatch(token, keywordTokens[0], false));
   }
@@ -65,7 +61,7 @@ function tokensMatch(commentToken: string, keywordToken: string, phraseMode: boo
 function allowedDistance(keywordToken: string, phraseMode: boolean): number {
   const length = keywordToken.length;
   if (length <= 2) return 0;
-  if (length <= 4) return 1;
+  if (length <= 4) return phraseMode ? 1 : 0;
   if (length <= 7) return 2;
   return 2;
 }

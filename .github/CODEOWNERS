@@ -1,0 +1,9 @@
+* @aldoprianandi
+
+.github/ @aldoprianandi
+scripts/oss-scan.mjs @aldoprianandi
+package*.json @aldoprianandi
+SECURITY.md @aldoprianandi
+docs/04-security-and-compliance.md @aldoprianandi
+docs/09-api-reference.md @aldoprianandi
+docs/10-feature-matrix.md @aldoprianandi

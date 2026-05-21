@@ -9,6 +9,7 @@ import { timingSafeEqual } from "../security/constant-time";
 import { redactSensitiveText } from "../security/redaction";
 import { getInstagramAccessToken } from "../token/manager";
 import type { Env } from "../types";
+import { adminTransportSecurityHeaders } from "./ui-auth";
 
 const CAMPAIGN_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{2,63}$/;
 const META_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
@@ -140,6 +141,13 @@ type AdminRouteEnv = {
 type AdminContext = Context<AdminRouteEnv>;
 
 export const adminRoutes = new Hono<AdminRouteEnv>();
+
+adminRoutes.use("*", async (c, next) => {
+  await next();
+  for (const [key, value] of Object.entries(adminTransportSecurityHeaders(c.req.url))) {
+    c.header(key, String(value));
+  }
+});
 
 const ADMIN_RATE_LIMIT = {
   limit: ADMIN_REQUESTS_PER_MINUTE,

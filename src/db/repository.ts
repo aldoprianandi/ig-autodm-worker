@@ -102,6 +102,7 @@ export type CleanupCounts = {
   adminSessions: number;
   adminAuditLogs: number;
   operationalEvents: number;
+  dataDeletionRequests: number;
   outboundRateLimits: number;
 };
 
@@ -113,8 +114,10 @@ export type CampaignDeleteCounts = {
 };
 
 export type UserDataDeleteCounts = {
+  adminAuditLogs: number;
   contactStates: number;
   deliveries: number;
+  operationalEvents: number;
   webhookEvents: number;
 };
 
@@ -156,12 +159,16 @@ const CLEANUP_TARGETS = {
   operationalEvents: {
     sql: "DELETE FROM operational_events WHERE rowid IN (SELECT rowid FROM operational_events WHERE created_at < ?1 LIMIT ?2)"
   },
+  dataDeletionRequests: {
+    sql: "DELETE FROM data_deletion_requests WHERE rowid IN (SELECT rowid FROM data_deletion_requests WHERE created_at < ?1 LIMIT ?2)"
+  },
   outboundRateLimits: {
     sql: "DELETE FROM outbound_rate_limits WHERE rowid IN (SELECT rowid FROM outbound_rate_limits WHERE window_start < ?1 LIMIT ?2)"
   }
 } as const;
 
 type CleanupTarget = keyof typeof CLEANUP_TARGETS;
+const MAX_DELIVERY_ATTEMPTS = 5;
 
 export class Repository {
   constructor(private readonly db: D1Database) {}
@@ -390,8 +397,29 @@ export class Repository {
     const deliveries = await this.deleteBy("DELETE FROM deliveries WHERE ig_user_id = ?1", igUserId);
     const contactStates = await this.deleteBy("DELETE FROM contact_states WHERE ig_user_id = ?1", igUserId);
     const webhookEvents = await this.deleteBy("DELETE FROM webhook_events WHERE ig_user_id = ?1", igUserId);
+    const operationalEvents = await this.deleteBy(
+      "DELETE FROM operational_events WHERE json_valid(metadata_json) AND json_extract(metadata_json, '$.igUserId') = ?1",
+      igUserId
+    );
+    const adminAuditLogs = await this.deleteBy(
+      "DELETE FROM admin_audit_logs WHERE path LIKE ?1 ESCAPE '\\'",
+      `%/${escapeLikePattern(igUserId)}/%`
+    );
 
-    return { contactStates, deliveries, webhookEvents };
+    return { adminAuditLogs, contactStates, deliveries, operationalEvents, webhookEvents };
+  }
+
+  async claimDataDeletionRequest(requestHash: string): Promise<boolean> {
+    const result = await this.db
+      .prepare(
+        `INSERT OR IGNORE INTO data_deletion_requests
+        (request_hash, created_at)
+        VALUES (?1, ?2)`
+      )
+      .bind(requestHash, new Date().toISOString())
+      .run();
+
+    return Number(result.meta.changes ?? 0) === 1;
   }
 
   async createDelivery(input: {
@@ -532,8 +560,25 @@ export class Repository {
     await this.updateDelivery(deliveryId, "waiting_follow", messageId, null, null);
   }
 
-  async markDeliveryRetrying(deliveryId: string, code: string, message: string): Promise<void> {
+  async markDeliveryRetrying(deliveryId: string, code: string, message: string): Promise<boolean> {
+    const row = await this.db
+      .prepare("SELECT attempt_count FROM deliveries WHERE id = ?1")
+      .bind(deliveryId)
+      .first<{ attempt_count: number }>();
+    const nextAttempt = Number(row?.attempt_count ?? 0) + 1;
+    if (nextAttempt >= MAX_DELIVERY_ATTEMPTS) {
+      await this.updateDelivery(
+        deliveryId,
+        "failed",
+        null,
+        "retry_exhausted",
+        `Retry attempts exhausted after ${MAX_DELIVERY_ATTEMPTS} attempts; last error ${code}: ${message}`
+      );
+      return false;
+    }
+
     await this.updateDelivery(deliveryId, "retrying", null, code, message);
+    return true;
   }
 
   async markDeliveryFailed(deliveryId: string, code: string, message: string): Promise<void> {
@@ -573,6 +618,7 @@ export class Repository {
       .prepare(
         `UPDATE deliveries
         SET status = 'queued',
+            attempt_count = 0,
             updated_at = ?2
         WHERE id = ?1
           AND status = 'waiting_follow'`
@@ -590,6 +636,7 @@ export class Repository {
         SET status = 'queued',
             error_code = NULL,
             error_message = NULL,
+            attempt_count = 0,
             updated_at = ?2
         WHERE id = ?1
           AND status IN ('queued', 'retrying', 'failed')`
@@ -607,6 +654,7 @@ export class Repository {
         SET status = 'queued',
             error_code = NULL,
             error_message = NULL,
+            attempt_count = 0,
             updated_at = ?2
         WHERE id = ?1
           AND delivery_type = 'opening'
@@ -625,6 +673,7 @@ export class Repository {
         SET status = 'queued',
             error_code = NULL,
             error_message = NULL,
+            attempt_count = 0,
             updated_at = ?2
         WHERE id = ?1
           AND delivery_type = 'opening'
@@ -1015,6 +1064,7 @@ export class Repository {
     const adminSessions = await this.deleteOlderThan("adminSessions", now.toISOString());
     const adminAuditLogs = await this.deleteOlderThan("adminAuditLogs", daysAgo(now, 90));
     const operationalEvents = await this.deleteOlderThan("operationalEvents", daysAgo(now, 90));
+    const dataDeletionRequests = await this.deleteOlderThan("dataDeletionRequests", daysAgo(now, 7));
     const outboundRateLimits = await this.deleteOlderThan("outboundRateLimits", daysAgo(now, 1));
 
     return {
@@ -1025,6 +1075,7 @@ export class Repository {
       adminSessions,
       adminAuditLogs,
       operationalEvents,
+      dataDeletionRequests,
       outboundRateLimits
     };
   }
@@ -1056,10 +1107,11 @@ export class Repository {
             (deliveries.status IN ('queued', 'retrying') AND deliveries.updated_at < ?1)
             OR (deliveries.status = 'processing' AND deliveries.updated_at < ?2)
           )
+          AND deliveries.attempt_count < ?4
         ORDER BY deliveries.updated_at ASC
         LIMIT ?3`
       )
-      .bind(queuedCutoff, processingCutoff, safeLimit)
+      .bind(queuedCutoff, processingCutoff, safeLimit, MAX_DELIVERY_ATTEMPTS)
       .all<Record<string, unknown>>();
 
     return rows.results.map((row) => ({
@@ -1072,6 +1124,42 @@ export class Repository {
       commentId: row.last_comment_id == null ? undefined : String(row.last_comment_id),
       stepIndex: parseButtonStepDeliveryType(String(row.delivery_type))
     }));
+  }
+
+  async markExhaustedRecoverableDeliveries(limit = 100, now = new Date()): Promise<number> {
+    const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 500);
+    const queuedCutoff = new Date(now.getTime() - QUEUE_RECOVERY_STALE_MS).toISOString();
+    const processingCutoff = new Date(now.getTime() - PROCESSING_RECOVERY_STALE_MS).toISOString();
+    const result = await this.db
+      .prepare(
+        `UPDATE deliveries
+        SET status = 'failed',
+            error_code = 'retry_exhausted',
+            error_message = 'Retry attempts exhausted before stale recovery',
+            updated_at = ?3
+        WHERE rowid IN (
+          SELECT deliveries.rowid
+          FROM deliveries
+          JOIN campaigns
+            ON campaigns.id = deliveries.campaign_id
+           AND campaigns.enabled = 1
+          WHERE (
+              deliveries.delivery_type IN ('opening', 'comment_reply', 'opening_failure_reply', 'final')
+              OR deliveries.delivery_type LIKE 'button_step:%'
+            )
+            AND (
+              (deliveries.status IN ('queued', 'retrying') AND deliveries.updated_at < ?1)
+              OR (deliveries.status = 'processing' AND deliveries.updated_at < ?2)
+            )
+            AND deliveries.attempt_count >= ?4
+          ORDER BY deliveries.updated_at ASC
+          LIMIT ?5
+        )`
+      )
+      .bind(queuedCutoff, processingCutoff, now.toISOString(), MAX_DELIVERY_ATTEMPTS, safeLimit)
+      .run();
+
+    return Number(result.meta.changes ?? 0);
   }
 
   async getOperationalDashboard(): Promise<OperationalDashboard> {
@@ -1134,6 +1222,10 @@ export class Repository {
     const result = await this.db.prepare(sql).bind(value).run();
     return Number(result.meta.changes ?? 0);
   }
+}
+
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (character) => `\\${character}`);
 }
 
 function mapCampaign(row: Record<string, unknown>): Campaign {

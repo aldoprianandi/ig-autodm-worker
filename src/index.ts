@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { adminRoutes } from "./admin/routes";
 import { adminUiPage } from "./admin/ui";
-import { adminUiSecurityHeaders, makeNonce } from "./admin/ui-auth";
+import { adminTransportSecurityHeaders, adminUiSecurityHeaders, makeNonce } from "./admin/ui-auth";
 import { isAutomationEnabled } from "./config";
 import { Repository } from "./db/repository";
 import { FlowRouter } from "./flows/router";
@@ -29,7 +29,8 @@ app.get("/admin-ui", (c) => {
   return new Response(adminUiPage(nonce, turnstileEnabled ? c.env.TURNSTILE_SITE_KEY : undefined), {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      ...adminUiSecurityHeaders(nonce, turnstileEnabled)
+      ...adminUiSecurityHeaders(nonce, turnstileEnabled),
+      ...adminTransportSecurityHeaders(c.req.url)
     }
   });
 });
@@ -136,7 +137,8 @@ app.post("/data-deletion", async (c) => {
   if (!rawBody.ok) return c.json({ error: "Request body too large" }, 413);
 
   const form = new URLSearchParams(new TextDecoder().decode(rawBody.bytes));
-  const signedRequest = await parseMetaSignedRequest(form.get("signed_request"), c.env.META_APP_SECRET);
+  const signedRequestValue = form.get("signed_request");
+  const signedRequest = await parseMetaSignedRequest(signedRequestValue, c.env.META_APP_SECRET);
   if (!signedRequest.ok) {
     return c.json({ error: "Invalid signed request" }, 400);
   }
@@ -147,6 +149,12 @@ app.post("/data-deletion", async (c) => {
   }
 
   const repo = new Repository(c.env.DB);
+  const replayHash = await sha256Hex(signedRequestValue ?? "");
+  const claimed = await repo.claimDataDeletionRequest(replayHash);
+  if (!claimed) {
+    return c.json({ error: "Data deletion request was already processed" }, 409);
+  }
+
   const deleted = await repo.deleteUserData(userId);
   const confirmationCode = crypto.randomUUID();
   await repo.insertOperationalEvent({
@@ -204,7 +212,7 @@ app.post("/webhooks/meta", async (c) => {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
 
-  const events = normalizeMetaWebhook(payload, c.env.INSTAGRAM_ACCOUNT_ID);
+  const events = normalizeMetaWebhook(payload, c.env.INSTAGRAM_ACCOUNT_ID, messagingAccountIds(c.env));
   const repo = new Repository(c.env.DB);
   const router = new FlowRouter(repo, c.env.DELIVERY_QUEUE, isAutomationEnabled(c.env), c.env.INSTAGRAM_ACCOUNT_ID);
 
@@ -269,6 +277,18 @@ function metaAppSecretConfigured(secret: string | undefined): secret is string {
       !secret.includes("replace-with") &&
       secret !== "app-secret"
   );
+}
+
+function messagingAccountIds(env: Pick<Env, "INSTAGRAM_MESSAGING_ACCOUNT_IDS">): string[] {
+  return (env.INSTAGRAM_MESSAGING_ACCOUNT_IDS ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function verifyAnyMetaSignature(

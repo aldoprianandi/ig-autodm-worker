@@ -44,6 +44,7 @@ Run these before claiming code changes are ready:
 npm run typecheck
 npm test
 npm audit --json
+npm audit signatures
 npm run scan:oss
 git diff --check
 ```

@@ -6,6 +6,7 @@
 npm run typecheck
 npm test
 npm audit --json
+npm audit signatures
 npm run scan:oss
 git diff --check
 ```
@@ -106,6 +107,7 @@ npx wrangler secret put META_APP_SECRET
 npx wrangler secret put META_VERIFY_TOKEN
 npx wrangler secret put INSTAGRAM_ACCESS_TOKEN
 npx wrangler secret put INSTAGRAM_ACCOUNT_ID
+npx wrangler secret put INSTAGRAM_MESSAGING_ACCOUNT_IDS
 npx wrangler secret put ADMIN_TOKEN
 npx wrangler secret put ADMIN_LOGIN_USERNAME
 npx wrangler secret put ADMIN_LOGIN_PASSWORD
@@ -122,6 +124,8 @@ npx wrangler secret put AUTO_FINAL_AFTER_OPENING
 npx wrangler secret put TURNSTILE_SITE_KEY
 npx wrangler secret put TURNSTILE_SECRET_KEY
 ```
+
+Set optional `INSTAGRAM_MESSAGING_ACCOUNT_IDS` only if Meta Messaging webhook payloads use entry or recipient IDs that differ from `INSTAGRAM_ACCOUNT_ID`. Use a comma-separated list.
 
 5. Keep automation disabled for first deploy:
 
@@ -212,7 +216,7 @@ Automatic refresh uses Meta's long-lived Instagram token refresh endpoint and st
 
 Requirements:
 
-- `TOKEN_ENCRYPTION_KEY` must be present.
+- `TOKEN_ENCRYPTION_KEY` must be present and at least 32 characters of random key material.
 - `INSTAGRAM_ACCESS_TOKEN` remains the bootstrap fallback.
 - The token must still be valid and old enough for Meta to refresh.
 

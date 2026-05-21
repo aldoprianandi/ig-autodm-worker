@@ -87,6 +87,13 @@ describe("admin routes", () => {
     expect(html).not.toContain("test-meta-app-secret-with-enough-entropy");
   });
 
+  it("adds HSTS to HTTPS admin UI responses", async () => {
+    const response = await app.request("https://worker.example/admin-ui", {}, env);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Strict-Transport-Security")).toBe("max-age=31536000; includeSubDomains");
+  });
+
   it("serves Turnstile on the admin UI only when Turnstile keys are configured", async () => {
     const response = await app.request(
       "/admin-ui",
@@ -166,6 +173,33 @@ describe("admin routes", () => {
 
     expect(campaigns.status).toBe(200);
     await expect(campaigns.json()).resolves.toEqual({ campaigns: [] });
+  });
+
+  it("sets a Secure admin session cookie on HTTPS login responses", async () => {
+    const db = createSessionDb();
+    const login = await app.request(
+      "https://worker.example/admin/session",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "User-Agent": "vitest" },
+        body: JSON.stringify({
+          username: "admin",
+          password: "test-admin-login-password",
+          adminToken: "test-admin-token-with-enough-entropy"
+        })
+      },
+      { ...(env as Record<string, unknown>), DB: db } as never
+    );
+
+    expect(login.status).toBe(200);
+    const setCookie = login.headers.get("Set-Cookie") || "";
+    expect(setCookie).toContain("ig_admin_session=");
+    expect(setCookie).toContain("Secure");
+    expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).toContain("SameSite=Strict");
+    expect(setCookie).toContain("Max-Age=1800");
+    expect(setCookie).not.toContain("Domain=");
+    expect(login.headers.get("Strict-Transport-Security")).toBe("max-age=31536000; includeSubDomains");
   });
 
   it("requires Turnstile verification when Turnstile is configured for browser login", async () => {

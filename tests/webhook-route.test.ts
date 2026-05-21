@@ -172,4 +172,37 @@ describe("Meta webhook routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ ok: true, processed: 0 });
   });
+
+  it("ignores signed messaging webhook events for unbound Instagram accounts", async () => {
+    const body = JSON.stringify({
+      object: "instagram",
+      entry: [
+        {
+          id: "other-account",
+          messaging: [
+            {
+              sender: { id: "user-1" },
+              recipient: { id: "other-recipient" },
+              timestamp: 1,
+              postback: { payload: "campaign-1:confirm" }
+            }
+          ]
+        }
+      ]
+    });
+    const signature = await createMetaSignature(body, "test-meta-app-secret-with-enough-entropy");
+
+    const response = await app.request(
+      "/webhooks/meta",
+      {
+        method: "POST",
+        headers: { "X-Hub-Signature-256": signature },
+        body
+      },
+      env
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true, processed: 0 });
+  });
 });

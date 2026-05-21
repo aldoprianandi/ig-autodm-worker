@@ -114,7 +114,7 @@ Scheduled fallback:
 - route matching comments through the same event router used by webhooks.
 - skip comments outside the private reply window.
 - queue public comment replies when opening delivery is already `sent` and no public reply delivery exists.
-- queue final deliveries when opening delivery is already `sent` and no final delivery exists.
+- queue final deliveries only when `AUTO_FINAL_AFTER_OPENING=true` and opening delivery is already `sent` with no final delivery.
 
 ## Request Flow: Comment Trigger
 
@@ -185,8 +185,10 @@ sequenceDiagram
   Worker->>Q: Queue opening delivery when needed
   Worker->>D1: Find opening sent without public comment reply
   Worker->>Q: Queue public comment reply fallback
-  Worker->>D1: Find opening sent without final
-  Worker->>Q: Queue final delivery fallback
+  opt AUTO_FINAL_AFTER_OPENING=true
+    Worker->>D1: Find opening sent without final
+    Worker->>Q: Queue final delivery fallback when flag enabled
+  end
 ```
 
 ## Deployment Shape

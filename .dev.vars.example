@@ -3,6 +3,7 @@ INSTAGRAM_APP_SECRET="replace-with-instagram-app-secret-or-leave-unset"
 META_VERIFY_TOKEN="replace-with-random-webhook-verify-token"
 INSTAGRAM_ACCESS_TOKEN="replace-with-instagram-access-token"
 INSTAGRAM_ACCOUNT_ID="replace-with-instagram-professional-account-id"
+INSTAGRAM_MESSAGING_ACCOUNT_IDS=""
 
 ADMIN_TOKEN="replace-with-24-plus-character-random-admin-token"
 ADMIN_LOGIN_USERNAME="replace-with-admin-username"

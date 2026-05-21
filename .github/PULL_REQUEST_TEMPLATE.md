@@ -7,6 +7,7 @@
 - [ ] `npm run typecheck`
 - [ ] `npm test`
 - [ ] `npm audit --json`
+- [ ] `npm audit signatures`
 - [ ] `npm run scan:oss`
 - [ ] `git diff --check`
 

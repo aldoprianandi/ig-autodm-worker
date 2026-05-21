@@ -76,12 +76,15 @@ npx wrangler secret put META_APP_SECRET
 npx wrangler secret put META_VERIFY_TOKEN
 npx wrangler secret put INSTAGRAM_ACCESS_TOKEN
 npx wrangler secret put INSTAGRAM_ACCOUNT_ID
+npx wrangler secret put INSTAGRAM_MESSAGING_ACCOUNT_IDS
 npx wrangler secret put ADMIN_TOKEN
 npx wrangler secret put ADMIN_LOGIN_USERNAME
 npx wrangler secret put ADMIN_LOGIN_PASSWORD
 npx wrangler secret put AUTOMATION_ENABLED
 npx wrangler secret put TOKEN_ENCRYPTION_KEY
 ```
+
+`INSTAGRAM_MESSAGING_ACCOUNT_IDS` is optional. Use it only when Meta sends Instagram Messaging webhooks with an entry or recipient ID that differs from `INSTAGRAM_ACCOUNT_ID`.
 
 Optional:
 
@@ -101,6 +104,7 @@ Run before deploying or opening a PR:
 npm run typecheck
 npm test
 npm audit --json
+npm audit signatures
 npm run scan:oss
 git diff --check
 ```

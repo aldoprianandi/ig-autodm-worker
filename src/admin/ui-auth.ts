@@ -35,6 +35,12 @@ export function adminUiSecurityHeaders(nonce: string, turnstileEnabled = false):
   };
 }
 
+export function adminTransportSecurityHeaders(requestUrl: string): HeadersInit {
+  return new URL(requestUrl).protocol === "https:"
+    ? { "Strict-Transport-Security": "max-age=31536000; includeSubDomains" }
+    : {};
+}
+
 export function makeNonce(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(18));
   let binary = "";

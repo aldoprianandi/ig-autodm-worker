@@ -433,7 +433,7 @@ describe("comment poller", () => {
     expect(jobs).toEqual([]);
   });
 
-  it("queues final deliveries after the last DM step was sent", async () => {
+  it("does not queue final deliveries after the last DM step by default", async () => {
     const created: unknown[] = [];
     const jobs: DeliveryJob[] = [];
     const repo = {
@@ -456,23 +456,8 @@ describe("comment poller", () => {
 
     const result = await queueFinalDeliveriesAfterLastStep(repo, queue as never);
 
-    expect(result).toBe(1);
-    expect(created).toEqual([
-      {
-        id: "confirm:user-1:final",
-        campaignId: "confirm",
-        igUserId: "user-1",
-        deliveryType: "final",
-        status: "queued"
-      }
-    ]);
-    expect(jobs).toEqual([
-      {
-        deliveryId: "confirm:user-1:final",
-        campaignId: "confirm",
-        igUserId: "user-1",
-        deliveryType: "final"
-      }
-    ]);
+    expect(result).toBe(0);
+    expect(created).toEqual([]);
+    expect(jobs).toEqual([]);
   });
 });

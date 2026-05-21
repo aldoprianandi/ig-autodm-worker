@@ -16,6 +16,7 @@ describe("scheduled maintenance", () => {
           adminSessions: 1,
           adminAuditLogs: 0,
           operationalEvents: 0,
+          dataDeletionRequests: 0,
           outboundRateLimits: 4
         };
       },
@@ -41,6 +42,7 @@ describe("scheduled maintenance", () => {
       adminSessions: 1,
       adminAuditLogs: 0,
       operationalEvents: 0,
+      dataDeletionRequests: 0,
       outboundRateLimits: 4
     });
     expect(calls).toEqual(["cleanup", "token", "event:maintenance_completed"]);
@@ -74,6 +76,7 @@ describe("scheduled maintenance", () => {
           adminSessions: 0,
           adminAuditLogs: 0,
           operationalEvents: 0,
+          dataDeletionRequests: 0,
           outboundRateLimits: 0
         };
       },
@@ -98,6 +101,7 @@ describe("scheduled maintenance", () => {
       adminSessions: 0,
       adminAuditLogs: 0,
       operationalEvents: 0,
+      dataDeletionRequests: 0,
       outboundRateLimits: 0
     });
     expect(calls).toEqual(["cleanup", "token"]);

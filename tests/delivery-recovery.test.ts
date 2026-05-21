@@ -6,6 +6,9 @@ describe("delivery recovery", () => {
   it("re-enqueues stale queued, retrying, or processing delivery rows", async () => {
     const jobs: DeliveryJob[] = [];
     const repo = {
+      async markExhaustedRecoverableDeliveries() {
+        return 0;
+      },
       async listRecoverableDeliveries() {
         return [
           {
@@ -87,6 +90,48 @@ describe("delivery recovery", () => {
         commentId: undefined,
         stepIndex: 0
       },
+      {
+        deliveryId: "campaign-1:user-1:final",
+        campaignId: "campaign-1",
+        igUserId: "user-1",
+        deliveryType: "final",
+        commentId: undefined,
+        stepIndex: undefined
+      }
+    ]);
+  });
+
+  it("marks exhausted stale rows before re-enqueueing recoverable rows", async () => {
+    const calls: string[] = [];
+    const jobs: DeliveryJob[] = [];
+    const repo = {
+      async markExhaustedRecoverableDeliveries() {
+        calls.push("mark-exhausted");
+        return 2;
+      },
+      async listRecoverableDeliveries() {
+        calls.push("list-recoverable");
+        return [
+          {
+            deliveryId: "campaign-1:user-1:final",
+            campaignId: "campaign-1",
+            igUserId: "user-1",
+            deliveryType: "final" as const
+          }
+        ];
+      }
+    };
+    const queue = {
+      async send(job: DeliveryJob) {
+        jobs.push(job);
+      }
+    };
+
+    const recovered = await recoverStaleDeliveries(repo, queue as never);
+
+    expect(recovered).toBe(1);
+    expect(calls).toEqual(["mark-exhausted", "list-recoverable"]);
+    expect(jobs).toEqual([
       {
         deliveryId: "campaign-1:user-1:final",
         campaignId: "campaign-1",

@@ -1,12 +1,13 @@
 import type { Repository } from "../db/repository";
 import type { DeliveryJob } from "../types";
 
-type RecoveryRepository = Pick<Repository, "listRecoverableDeliveries">;
+type RecoveryRepository = Pick<Repository, "listRecoverableDeliveries" | "markExhaustedRecoverableDeliveries">;
 
 export async function recoverStaleDeliveries(
   repo: RecoveryRepository,
   queue: Queue<DeliveryJob>
 ): Promise<number> {
+  await repo.markExhaustedRecoverableDeliveries();
   const candidates = await repo.listRecoverableDeliveries();
   let queued = 0;
 

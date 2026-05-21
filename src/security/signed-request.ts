@@ -3,11 +3,15 @@ import { timingSafeEqual } from "./constant-time";
 type SignedRequestPayload = Record<string, unknown> & {
   algorithm?: string;
   user_id?: string;
+  issued_at?: number;
 };
 
 export type SignedRequestResult =
   | { ok: true; payload: SignedRequestPayload }
-  | { ok: false; error: "missing" | "malformed" | "unsupported_algorithm" | "invalid_signature" };
+  | { ok: false; error: "missing" | "malformed" | "unsupported_algorithm" | "invalid_signature" | "stale_or_missing_timestamp" };
+
+const MAX_SIGNED_REQUEST_AGE_SECONDS = 5 * 60;
+const MAX_SIGNED_REQUEST_FUTURE_SKEW_SECONDS = 30;
 
 export async function parseMetaSignedRequest(
   signedRequest: string | null | undefined,
@@ -38,6 +42,16 @@ export async function parseMetaSignedRequest(
   const expectedSignatureHex = await hmacSha256Hex(appSecret, encodedPayload);
   if (!timingSafeEqual(actualSignatureHex, expectedSignatureHex)) {
     return { ok: false, error: "invalid_signature" };
+  }
+
+  const issuedAt = Number(payload.issued_at);
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (
+    !Number.isFinite(issuedAt) ||
+    issuedAt < nowSeconds - MAX_SIGNED_REQUEST_AGE_SECONDS ||
+    issuedAt > nowSeconds + MAX_SIGNED_REQUEST_FUTURE_SKEW_SECONDS
+  ) {
+    return { ok: false, error: "stale_or_missing_timestamp" };
   }
 
   return { ok: true, payload };

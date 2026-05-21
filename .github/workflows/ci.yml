@@ -37,6 +37,9 @@ jobs:
       - name: Audit
         run: npm audit --json
 
+      - name: Audit signatures
+        run: npm audit signatures
+
       - name: OSS scan
         run: npm run scan:oss
 

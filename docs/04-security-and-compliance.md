@@ -47,6 +47,7 @@ Canonical secret inventory:
   - `AUTOMATION_ENABLED`
   - `INSTAGRAM_ACCESS_TOKEN`
   - `INSTAGRAM_ACCOUNT_ID`
+  - `INSTAGRAM_MESSAGING_ACCOUNT_IDS` when Meta Messaging webhook account IDs differ from the comment account ID
   - `META_APP_SECRET`
   - `META_VERIFY_TOKEN`
   - `TOKEN_ENCRYPTION_KEY`
@@ -61,7 +62,7 @@ Never store these in:
 - logs.
 - screenshots used for App Review.
 
-Outbound Graph API calls must use `Authorization` headers, not `access_token` query parameters, except Meta token refresh endpoints that require token parameters by API contract. Do not log refresh URLs, and keep redaction tests for any upstream refresh errors. Stored Instagram token rows in D1 must remain encrypted with `TOKEN_ENCRYPTION_KEY`.
+Outbound Graph API calls must use `Authorization` headers, not `access_token` query parameters, except Meta token refresh endpoints that require token parameters by API contract. Do not log refresh URLs, and keep redaction tests for any upstream refresh errors. Stored Instagram token rows in D1 must remain encrypted with a random `TOKEN_ENCRYPTION_KEY` of at least 32 characters.
 
 ### Admin API
 

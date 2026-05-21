@@ -164,7 +164,7 @@ describe("normalizeMetaWebhook", () => {
     ]);
   });
 
-  it("accepts Instagram messaging events when the entry id differs from the configured comment account id", () => {
+  it("accepts Instagram messaging events when the entry or recipient id is explicitly allowlisted", () => {
     const events = normalizeMetaWebhook(
       {
         object: "instagram",
@@ -182,7 +182,8 @@ describe("normalizeMetaWebhook", () => {
           }
         ]
       },
-      "ig-account-id"
+      "ig-account-id",
+      ["messaging-scoped-id", "alternate-recipient-id"]
     );
 
     expect(events).toEqual([
@@ -193,6 +194,30 @@ describe("normalizeMetaWebhook", () => {
         payload: "campaign-1:confirm"
       }
     ]);
+  });
+
+  it("drops Instagram messaging events that are not scoped to a configured or allowlisted account", () => {
+    const events = normalizeMetaWebhook(
+      {
+        object: "instagram",
+        entry: [
+          {
+            id: "other-account-id",
+            messaging: [
+              {
+                sender: { id: "user-1" },
+                recipient: { id: "other-recipient-id" },
+                timestamp: 6,
+                postback: { payload: "campaign-1:confirm" }
+              }
+            ]
+          }
+        ]
+      },
+      "ig-account-id"
+    );
+
+    expect(events).toEqual([]);
   });
 
   it("drops events that are not scoped to the configured Instagram account", () => {

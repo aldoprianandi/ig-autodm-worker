@@ -15,12 +15,14 @@ function asArray(value: unknown): UnknownRecord[] {
 
 export function normalizeMetaWebhook(payload: unknown): NormalizedEvent[];
 export function normalizeMetaWebhook(payload: unknown, expectedAccountId: string): NormalizedEvent[];
-export function normalizeMetaWebhook(payload: unknown, expectedAccountId?: string): NormalizedEvent[] {
+export function normalizeMetaWebhook(payload: unknown, expectedAccountId: string, messagingAccountIds: string[]): NormalizedEvent[];
+export function normalizeMetaWebhook(payload: unknown, expectedAccountId?: string, messagingAccountIds: string[] = []): NormalizedEvent[] {
   const root = asRecord(payload);
   if (expectedAccountId && root.object !== "instagram") return [];
 
   const entries = asArray(root.entry);
   const events: NormalizedEvent[] = [];
+  const allowedMessagingIds = new Set([expectedAccountId, ...messagingAccountIds].filter(Boolean));
 
   for (const entry of entries) {
     const entryMatchesExpectedAccount = !expectedAccountId || String(entry.id ?? "") === expectedAccountId;
@@ -53,6 +55,11 @@ export function normalizeMetaWebhook(payload: unknown, expectedAccountId?: strin
     }
 
     for (const messageEvent of asArray(entry.messaging)) {
+      const recipient = asRecord(messageEvent.recipient);
+      const recipientId = String(recipient.id ?? "");
+      const entryId = String(entry.id ?? "");
+      if (expectedAccountId && !allowedMessagingIds.has(entryId) && !allowedMessagingIds.has(recipientId)) continue;
+
       const sender = asRecord(messageEvent.sender);
       const senderId = String(sender.id ?? "");
       const timestamp = String(messageEvent.timestamp ?? "");
@@ -60,8 +67,6 @@ export function normalizeMetaWebhook(payload: unknown, expectedAccountId?: strin
       const message = asRecord(messageEvent.message);
 
       if (!senderId || !timestamp) continue;
-      // Instagram Messaging webhook recipient ids can differ from the graph account id
-      // used by comment webhooks. Scope is enforced by the Meta signature and router state.
 
       const quickReply = asRecord(message.quick_reply);
       const quickReplyPayload = quickReply.payload ? truncate(String(quickReply.payload), MAX_PAYLOAD_CHARS) : "";
