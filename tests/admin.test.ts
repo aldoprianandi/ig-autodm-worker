@@ -942,6 +942,25 @@ describe("admin routes", () => {
     await expect(bulk.json()).resolves.toMatchObject({ ok: true, count: 2 });
   });
 
+  it("rejects bulk public reply templates over the campaign reply limit", async () => {
+    const response = await app.request(
+      "/admin/variant-templates/bulk",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer test-admin-token-with-enough-entropy",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ kind: "comment_reply", texts: ["Valid reply", "x".repeat(301)] })
+      },
+      { ...(env as Record<string, unknown>), DB: createAdminDb() } as never
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { details?: { fieldErrors?: Record<string, string[]> } };
+    expect(body.details?.fieldErrors?.texts?.[0]).toContain("300");
+  });
+
   it("lists media comments without exposing paging URLs", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toContain("graph.instagram.com/v25.0/media-1/comments");

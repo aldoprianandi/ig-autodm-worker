@@ -85,10 +85,7 @@ const variantTemplateBaseSchema = z.object({
 const variantTemplateSchema = variantTemplateBaseSchema.superRefine((value, ctx) => {
   if (value.kind === "comment_reply" && value.text.length > 300) {
     ctx.addIssue({
-      code: z.ZodIssueCode.too_big,
-      maximum: 300,
-      type: "string",
-      inclusive: true,
+      code: z.ZodIssueCode.custom,
       path: ["text"],
       message: "Public comment reply templates must be 300 characters or less"
     });
@@ -102,10 +99,7 @@ const variantTemplateBulkSchema = z.object({
   value.texts.forEach((text, index) => {
     if (text.length > 300) {
       ctx.addIssue({
-        code: z.ZodIssueCode.too_big,
-        maximum: 300,
-        type: "string",
-        inclusive: true,
+        code: z.ZodIssueCode.custom,
         path: ["texts", index],
         message: "Public comment reply templates must be 300 characters or less"
       });

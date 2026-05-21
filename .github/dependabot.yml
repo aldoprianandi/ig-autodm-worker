@@ -8,6 +8,18 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    groups:
+      vitest:
+        patterns:
+          - vitest
+          - "@vitest/*"
+    ignore:
+      - dependency-name: vitest
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "@vitest/*"
+        update-types:
+          - version-update:semver-major
     labels:
       - dependencies
   - package-ecosystem: github-actions
