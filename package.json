@@ -41,7 +41,7 @@
     "self-hosted"
   ],
   "dependencies": {
-    "hono": "^4.12.21",
+    "hono": "^4.12.23",
     "zod": "^4.4.3"
   },
   "devDependencies": {
