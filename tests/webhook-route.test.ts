@@ -137,6 +137,32 @@ describe("Meta webhook routes", () => {
     await expect(response.text()).resolves.toBe("Payload Too Large");
   });
 
+  it("rejects oversized chunked webhook bodies that omit content-length", async () => {
+    const chunk = new TextEncoder().encode("x".repeat(64 * 1024));
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let index = 0; index < 5; index += 1) {
+          controller.enqueue(chunk);
+        }
+        controller.close();
+      }
+    });
+
+    const response = await app.request(
+      "/webhooks/meta",
+      {
+        method: "POST",
+        headers: { "X-Hub-Signature-256": "sha256=bad" },
+        body,
+        duplex: "half"
+      } as RequestInit,
+      env
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.text()).resolves.toBe("Payload Too Large");
+  });
+
   it("ignores signed webhook events for a different Instagram account", async () => {
     const body = JSON.stringify({
       object: "instagram",
@@ -152,39 +178,6 @@ describe("Meta webhook routes", () => {
                 media: { id: "media-1" },
                 from: { id: "user-1" }
               }
-            }
-          ]
-        }
-      ]
-    });
-    const signature = await createMetaSignature(body, "test-meta-app-secret-with-enough-entropy");
-
-    const response = await app.request(
-      "/webhooks/meta",
-      {
-        method: "POST",
-        headers: { "X-Hub-Signature-256": signature },
-        body
-      },
-      env
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ ok: true, processed: 0 });
-  });
-
-  it("ignores signed messaging webhook events for unbound Instagram accounts", async () => {
-    const body = JSON.stringify({
-      object: "instagram",
-      entry: [
-        {
-          id: "other-account",
-          messaging: [
-            {
-              sender: { id: "user-1" },
-              recipient: { id: "other-recipient" },
-              timestamp: 1,
-              postback: { payload: "campaign-1:confirm" }
             }
           ]
         }

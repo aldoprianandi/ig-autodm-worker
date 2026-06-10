@@ -11,6 +11,7 @@ import { runScheduledMaintenance } from "./ops/maintenance";
 import { pollCampaignComments } from "./poller/comments";
 import { processDeliveryBatch } from "./queue/consumer";
 import { recoverStaleDeliveries } from "./queue/recovery";
+import { timingSafeEqual } from "./security/constant-time";
 import { parseMetaSignedRequest } from "./security/signed-request";
 import { verifyMetaSignature } from "./security/signature";
 import { refreshInstagramTokenIfDue } from "./token/manager";
@@ -211,14 +212,14 @@ function dataDeletionJson(c: { req: { url: string }; json: (data: unknown) => Re
   });
 }
 
-app.get("/webhooks/meta", (c) => {
+app.get("/webhooks/meta", async (c) => {
   if (!metaWebhookConfigured(c.env)) return c.text("Webhook is not configured", 503);
 
   const mode = c.req.query("hub.mode");
   const token = c.req.query("hub.verify_token");
   const challenge = c.req.query("hub.challenge");
 
-  if (mode === "subscribe" && token === c.env.META_VERIFY_TOKEN && challenge) {
+  if (mode === "subscribe" && token && challenge && (await matchesVerifyToken(token, c.env.META_VERIFY_TOKEN))) {
     return c.text(challenge);
   }
 
@@ -281,9 +282,36 @@ async function readLimitedBody(
     if (Number.isFinite(parsed) && parsed > maxBytes) return { ok: false };
   }
 
-  const bytes = await request.arrayBuffer();
-  if (bytes.byteLength > maxBytes) return { ok: false };
-  return { ok: true, bytes };
+  const body = request.body;
+  if (!body) {
+    const bytes = await request.arrayBuffer();
+    if (bytes.byteLength > maxBytes) return { ok: false };
+    return { ok: true, bytes };
+  }
+
+  // Bodies without a trustworthy Content-Length must be capped while streaming,
+  // not after they are fully buffered.
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBytes) {
+      await reader.cancel();
+      return { ok: false };
+    }
+    chunks.push(value);
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { ok: true, bytes: bytes.buffer };
 }
 
 function metaWebhookConfigured(env: Env): boolean {
@@ -321,6 +349,13 @@ function messagingAccountIds(env: Pick<Env, "INSTAGRAM_MESSAGING_ACCOUNT_IDS">):
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+// Verify-token checks compare digests, like every other secret comparison here,
+// so the comparison cost does not depend on how much of the token matched.
+async function matchesVerifyToken(provided: string, expected: string): Promise<boolean> {
+  const [providedHash, expectedHash] = await Promise.all([sha256Hex(provided), sha256Hex(expected)]);
+  return timingSafeEqual(providedHash, expectedHash);
 }
 
 async function verifyAnyMetaSignature(

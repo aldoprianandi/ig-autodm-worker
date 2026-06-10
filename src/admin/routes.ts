@@ -367,7 +367,7 @@ async function fetchInstagramJson(pathSegments: string[], accessToken: string, p
   const response = await fetch(url.toString(), {
     headers: { Authorization: `Bearer ${accessToken}` }
   });
-  const body = (await response.json()) as unknown;
+  const body = (await response.json().catch(() => ({}))) as unknown;
   return { response, body };
 }
 
