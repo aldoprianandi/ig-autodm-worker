@@ -1,4 +1,21 @@
 const MAX_FUZZY_PHRASE_TOKENS = 6;
+const MIN_STANDALONE_PHRASE_TOKEN_LENGTH = 4;
+const COMMON_PHRASE_WORDS = new Set([
+  "aku",
+  "anda",
+  "bang",
+  "buat",
+  "dan",
+  "dong",
+  "for",
+  "ini",
+  "kak",
+  "mau",
+  "nya",
+  "the",
+  "untuk",
+  "yang"
+]);
 
 export function commentMatchesKeyword(commentText: string, keyword: string): boolean {
   const keywordTokens = tokenize(keyword);
@@ -7,12 +24,16 @@ export function commentMatchesKeyword(commentText: string, keyword: string): boo
   const commentTokens = tokenize(commentText);
   if (!commentTokens.length) return false;
 
+  const normalizedComment = commentTokens.join(" ");
+  const normalizedKeyword = keywordTokens.join(" ");
+  if (normalizedComment.includes(normalizedKeyword)) return true;
+
   if (keywordTokens.length === 1) {
     return commentTokens.some((token) => tokensMatch(token, keywordTokens[0], false));
   }
 
   if (keywordTokens.length > MAX_FUZZY_PHRASE_TOKENS) return false;
-  return phraseTokensMatch(keywordTokens, commentTokens);
+  return phraseTokensMatch(keywordTokens, commentTokens) || phraseHasStandaloneToken(keywordTokens, commentTokens);
 }
 
 function tokenize(value: string): string[] {
@@ -50,6 +71,12 @@ function phraseTokensMatch(keywordTokens: string[], commentTokens: string[]): bo
   return matchAt(0);
 }
 
+function phraseHasStandaloneToken(keywordTokens: string[], commentTokens: string[]): boolean {
+  return keywordTokens
+    .filter((token) => token.length >= MIN_STANDALONE_PHRASE_TOKEN_LENGTH && !COMMON_PHRASE_WORDS.has(token))
+    .some((keywordToken) => commentTokens.some((commentToken) => tokensMatch(commentToken, keywordToken, true)));
+}
+
 function tokensMatch(commentToken: string, keywordToken: string, phraseMode: boolean): boolean {
   if (commentToken === keywordToken) return true;
   const distance = allowedDistance(keywordToken, phraseMode);
@@ -61,7 +88,7 @@ function tokensMatch(commentToken: string, keywordToken: string, phraseMode: boo
 function allowedDistance(keywordToken: string, phraseMode: boolean): number {
   const length = keywordToken.length;
   if (length <= 2) return 0;
-  if (length <= 4) return phraseMode ? 1 : 0;
+  if (length <= 4) return 1;
   if (length <= 7) return 2;
   return 2;
 }

@@ -104,7 +104,7 @@ describe("delivery recovery", () => {
     ]);
   });
 
-  it("marks exhausted stale rows before re-enqueueing recoverable rows", async () => {
+  it("marks exhausted and stale processing rows before re-enqueueing recoverable rows", async () => {
     const calls: string[] = [];
     const jobs: DeliveryJob[] = [];
     const repo = {

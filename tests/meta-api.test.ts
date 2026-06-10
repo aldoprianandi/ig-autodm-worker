@@ -77,7 +77,7 @@ describe("MetaApiClient", () => {
     });
   });
 
-  it("does not retry message-window policy blocks", async () => {
+  it("does not retry message-window blocks", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -117,7 +117,7 @@ describe("MetaApiClient", () => {
     );
 
     const client = new MetaApiClient("ig-account", "secret-token");
-    const result = await client.replyToComment("comment-1", "Sent. Check your DM.");
+    const result = await client.replyToComment("comment-1", "Cek DM kamu ya");
 
     expect(result).toEqual({
       ok: false,
@@ -201,7 +201,7 @@ describe("MetaApiClient", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const client = new MetaApiClient("ig-account", "secret-token");
-    const result = await client.replyToComment("comment-1", "Sent. Check your DM.");
+    const result = await client.replyToComment("comment-1", "Cek DM kamu ya");
 
     expect(result).toEqual({ ok: true, messageId: "reply-1" });
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
@@ -212,7 +212,7 @@ describe("MetaApiClient", () => {
       Authorization: "Bearer secret-token",
       "Content-Type": "application/x-www-form-urlencoded"
     });
-    expect(init.body).toBe("message=Sent.+Check+your+DM.");
+    expect(init.body).toBe("message=Cek+DM+kamu+ya");
   });
 
   it("uses a web URL button when the opening button payload is a URL", async () => {
@@ -225,9 +225,9 @@ describe("MetaApiClient", () => {
       name: "Campaign",
       mediaId: "media-1",
       keyword: "PROMPT",
-      openingText: "Send me the guide.",
-      openingTextVariants: ["Send me the guide."],
-      buttonTitle: "CONFIRM",
+      openingText: "Saya mau ke tembok ratapan itu!",
+      openingTextVariants: ["Saya mau ke tembok ratapan itu!"],
+      buttonTitle: "TEMBOK",
       buttonPayload: "https://example.com/prompt",
       dmSteps: [],
       deliveryText: "Prompt link",
@@ -242,11 +242,11 @@ describe("MetaApiClient", () => {
       message: {
         attachment: {
           payload: {
-            text: "Send me the guide.",
+            text: "Saya mau ke tembok ratapan itu!",
             buttons: [
               {
                 type: "web_url",
-                title: "CONFIRM",
+                title: "TEMBOK",
                 url: "https://example.com/prompt"
               }
             ]

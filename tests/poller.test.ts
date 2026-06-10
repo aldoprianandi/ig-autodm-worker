@@ -433,7 +433,7 @@ describe("comment poller", () => {
     expect(jobs).toEqual([]);
   });
 
-  it("does not queue final deliveries after the last DM step by default", async () => {
+  it("queues final deliveries after the last DM step was sent", async () => {
     const created: unknown[] = [];
     const jobs: DeliveryJob[] = [];
     const repo = {
@@ -441,7 +441,7 @@ describe("comment poller", () => {
         return [];
       },
       async listLastStepSentWithoutFinal() {
-        return [{ campaignId: "confirm", igUserId: "user-1" }];
+        return [{ campaignId: "tembok", igUserId: "user-1" }];
       },
       async createDelivery(input: unknown) {
         created.push(input);
@@ -456,8 +456,23 @@ describe("comment poller", () => {
 
     const result = await queueFinalDeliveriesAfterLastStep(repo, queue as never);
 
-    expect(result).toBe(0);
-    expect(created).toEqual([]);
-    expect(jobs).toEqual([]);
+    expect(result).toBe(1);
+    expect(created).toEqual([
+      {
+        id: "tembok:user-1:final",
+        campaignId: "tembok",
+        igUserId: "user-1",
+        deliveryType: "final",
+        status: "queued"
+      }
+    ]);
+    expect(jobs).toEqual([
+      {
+        deliveryId: "tembok:user-1:final",
+        campaignId: "tembok",
+        igUserId: "user-1",
+        deliveryType: "final"
+      }
+    ]);
   });
 });

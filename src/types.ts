@@ -46,7 +46,7 @@ export type DeliveryJob = {
   deliveryId: string;
   campaignId: string;
   igUserId: string;
-  deliveryType: "opening" | "comment_reply" | "opening_failure_reply" | "button_step" | "final";
+  deliveryType: "opening" | "comment_reply" | "opening_failure_reply" | "follow_request" | "button_step" | "final";
   commentId?: string;
   stepIndex?: number;
 };

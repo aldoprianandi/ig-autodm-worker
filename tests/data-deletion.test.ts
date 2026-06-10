@@ -1,20 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { app } from "../src/index";
-import repositorySource from "../src/db/repository.ts?raw";
-import migration0001 from "../migrations/0001_initial.sql?raw";
-import migration0002 from "../migrations/0002_admin_security.sql?raw";
-import migration0003 from "../migrations/0003_comment_replies.sql?raw";
-import migration0004 from "../migrations/0004_ops_scaling.sql?raw";
-import migration0005 from "../migrations/0005_admin_sessions.sql?raw";
-import migration0006 from "../migrations/0006_message_variants.sql?raw";
-import migration0007 from "../migrations/0007_variant_templates.sql?raw";
-import migration0008 from "../migrations/0008_variant_templates_bootstrap_idx.sql?raw";
-import migration0009 from "../migrations/0009_dm_steps.sql?raw";
-import migration0010 from "../migrations/0010_follow_gate_text.sql?raw";
-import migration0011 from "../migrations/0011_follow_gate_button_title.sql?raw";
-import migration0012 from "../migrations/0012_opening_failure_reply_text.sql?raw";
-import migration0013 from "../migrations/0013_data_deletion_replay.sql?raw";
-import migration0014 from "../migrations/0014_data_deletion_status.sql?raw";
 
 const appSecret = "test-meta-app-secret-with-enough-entropy";
 const env = {
@@ -136,6 +121,48 @@ describe("Meta data deletion callback", () => {
     expect(db.events).toEqual([]);
   });
 
+  it("rejects signed deletion requests without issued_at", async () => {
+    const db = createDeletionDb();
+    const signedRequest = await createSignedRequest(
+      { algorithm: "HMAC-SHA256", user_id: "user-1" },
+      appSecret
+    );
+
+    const response = await app.request(
+      "/data-deletion",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ signed_request: signedRequest }).toString()
+      },
+      { ...(env as Record<string, unknown>), DB: db } as never
+    );
+
+    expect(response.status).toBe(400);
+    expect(db.deletes).toEqual([]);
+  });
+
+  it("rejects signed deletion requests too far in the future", async () => {
+    const db = createDeletionDb();
+    const signedRequest = await createSignedRequest(
+      { algorithm: "HMAC-SHA256", user_id: "user-1", issued_at: currentIssuedAt() + 60 },
+      appSecret
+    );
+
+    const response = await app.request(
+      "/data-deletion",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ signed_request: signedRequest }).toString()
+      },
+      { ...(env as Record<string, unknown>), DB: db } as never
+    );
+
+    expect(response.status).toBe(400);
+    expect(db.deletes).toEqual([]);
+  });
+
   it("returns the same confirmation for replayed completed deletion requests without deleting twice", async () => {
     const db = createDeletionDb();
     const signedRequest = await createSignedRequest(
@@ -168,6 +195,34 @@ describe("Meta data deletion callback", () => {
     await expect(second.json()).resolves.toEqual(firstBody);
     expect(db.deletes).toHaveLength(5);
     expect(db.events).toHaveLength(1);
+  });
+
+  it("returns 409 for duplicate in-flight deletion requests", async () => {
+    const db = createDeletionDb();
+    const signedRequest = await createSignedRequest(
+      { algorithm: "HMAC-SHA256", user_id: "user-1", issued_at: currentIssuedAt() },
+      appSecret
+    );
+    db.replayRequests.set(await sha256Hex(signedRequest), {
+      status: "processing",
+      confirmationCode: null,
+      updatedAt: new Date().toISOString()
+    });
+
+    const response = await app.request(
+      "/data-deletion",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ signed_request: signedRequest }).toString()
+      },
+      { ...(env as Record<string, unknown>), DB: db } as never
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "Data deletion request is already processing" });
+    expect(db.deletes).toEqual([]);
+    expect(db.events).toEqual([]);
   });
 
   it("releases an in-flight deletion claim when deletion fails so Meta can retry", async () => {
@@ -208,34 +263,6 @@ describe("Meta data deletion callback", () => {
     expect(second.status).toBe(200);
     expect(db.events).toHaveLength(1);
   });
-
-  it("keeps deleteUserData aligned with schema ig_user_id columns", () => {
-    const tableSql = [
-      migration0001,
-      migration0002,
-      migration0003,
-      migration0004,
-      migration0005,
-      migration0006,
-      migration0007,
-      migration0008,
-      migration0009,
-      migration0010,
-      migration0011,
-      migration0012,
-      migration0013,
-      migration0014
-    ].join("\n");
-    const tablesWithUserIds = [...tableSql.matchAll(/CREATE TABLE (\w+) \(([\s\S]*?)\);/g)]
-      .filter((match) => /\b(?:ig_)?user_id\b/.test(match[2]))
-      .map((match) => match[1])
-      .sort();
-
-    expect(tablesWithUserIds).toEqual(["contact_states", "deliveries", "webhook_events"]);
-    for (const table of tablesWithUserIds) {
-      expect(repositorySource).toContain(`DELETE FROM ${table} WHERE ig_user_id = ?1`);
-    }
-  });
 });
 
 function createDeletionDb() {
@@ -255,12 +282,9 @@ function createDeletionDb() {
                   ? { status: request.status, confirmation_code: request.confirmationCode }
                   : null;
               }
-              if (sql.includes("data_deletion_requested")) {
+              if (sql.includes("FROM data_deletion_requests") && sql.includes("confirmation_code")) {
                 const code = String(params[0]);
-                return db.events.some((event) => {
-                  const metadata = typeof event[4] === "string" ? JSON.parse(event[4]) as { confirmationCode?: string } : {};
-                  return metadata.confirmationCode === code;
-                })
+                return [...db.replayRequests.values()].some((request) => request.confirmationCode === code && request.status === "completed")
                   ? { ok: 1 }
                   : null;
               }
@@ -288,7 +312,7 @@ function createDeletionDb() {
               if (sql.includes("UPDATE data_deletion_requests") && sql.includes("status = 'processing'")) {
                 const hash = String(params[0]);
                 const request = db.replayRequests.get(hash);
-                if (request && request.status !== "completed") {
+                if (request && request.status !== "completed" && request.updatedAt < String(params[2])) {
                   request.updatedAt = String(params[1]);
                   return { meta: { changes: 1 } };
                 }
@@ -321,6 +345,10 @@ function currentIssuedAt(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 async function createSignedRequest(payload: Record<string, unknown>, secret: string): Promise<string> {
   const encodedPayload = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));

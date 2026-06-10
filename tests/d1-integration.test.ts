@@ -14,6 +14,7 @@ import migration0011 from "../migrations/0011_follow_gate_button_title.sql?raw";
 import migration0012 from "../migrations/0012_opening_failure_reply_text.sql?raw";
 import migration0013 from "../migrations/0013_data_deletion_replay.sql?raw";
 import migration0014 from "../migrations/0014_data_deletion_status.sql?raw";
+import migration0015 from "../migrations/0015_data_deletion_confirmation_idx.sql?raw";
 import { Repository, type Campaign } from "../src/db/repository";
 import { app } from "../src/index";
 import { processDeliveryBatch } from "../src/queue/consumer";
@@ -35,7 +36,8 @@ const migrations = [
   migration0011,
   migration0012,
   migration0013,
-  migration0014
+  migration0014,
+  migration0015
 ];
 
 const campaign: Campaign = {
@@ -380,16 +382,13 @@ describe("D1 integration", () => {
     }
   });
 
-  it("checks data deletion confirmation status through real D1 JSON metadata", async () => {
+  it("checks data deletion confirmation status through real D1 deletion requests", async () => {
     const db = await createMigratedD1();
     try {
       const repo = new Repository(db.d1);
       const confirmationCode = "11111111-1111-4111-8111-111111111111";
-      await repo.insertOperationalEvent({
-        eventType: "data_deletion_requested",
-        status: "ok",
-        metadata: { confirmationCode }
-      });
+      await repo.claimDataDeletionRequest("request-hash-1");
+      await repo.completeDataDeletionRequest("request-hash-1", confirmationCode);
 
       const found = await app.request(
         `/data-deletion/status/${confirmationCode}`,

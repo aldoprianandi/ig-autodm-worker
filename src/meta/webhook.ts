@@ -22,6 +22,10 @@ export function normalizeMetaWebhook(payload: unknown, expectedAccountId?: strin
 
   const entries = asArray(root.entry);
   const events: NormalizedEvent[] = [];
+  // Instagram Messaging webhook recipient ids can legitimately differ from the graph
+  // account id used by comment webhooks, so messaging scope is enforced only when an
+  // explicit INSTAGRAM_MESSAGING_ACCOUNT_IDS allowlist is configured.
+  const enforceMessagingScope = Boolean(expectedAccountId) && messagingAccountIds.length > 0;
   const allowedMessagingIds = new Set([expectedAccountId, ...messagingAccountIds].filter(Boolean));
 
   for (const entry of entries) {
@@ -55,10 +59,12 @@ export function normalizeMetaWebhook(payload: unknown, expectedAccountId?: strin
     }
 
     for (const messageEvent of asArray(entry.messaging)) {
-      const recipient = asRecord(messageEvent.recipient);
-      const recipientId = String(recipient.id ?? "");
-      const entryId = String(entry.id ?? "");
-      if (expectedAccountId && !allowedMessagingIds.has(entryId) && !allowedMessagingIds.has(recipientId)) continue;
+      if (enforceMessagingScope) {
+        const recipient = asRecord(messageEvent.recipient);
+        const recipientId = String(recipient.id ?? "");
+        const entryId = String(entry.id ?? "");
+        if (!allowedMessagingIds.has(entryId) && !allowedMessagingIds.has(recipientId)) continue;
+      }
 
       const sender = asRecord(messageEvent.sender);
       const senderId = String(sender.id ?? "");

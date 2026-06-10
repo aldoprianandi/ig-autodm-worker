@@ -488,11 +488,9 @@ export class Repository {
     const row = await this.db
       .prepare(
         `SELECT 1 AS ok
-        FROM operational_events
-        WHERE event_type = 'data_deletion_requested'
-          AND status = 'ok'
-          AND json_valid(metadata_json)
-          AND json_extract(metadata_json, '$.confirmationCode') = ?1
+        FROM data_deletion_requests
+        WHERE confirmation_code = ?1
+          AND status = 'completed'
         LIMIT 1`
       )
       .bind(confirmationCode)
@@ -639,13 +637,19 @@ export class Repository {
     await this.updateDelivery(deliveryId, "waiting_follow", messageId, null, null);
   }
 
-  async markDeliveryRetrying(deliveryId: string, code: string, message: string): Promise<boolean> {
+  async markDeliveryRetrying(
+    deliveryId: string,
+    code: string,
+    message: string,
+    options: { countAttempt?: boolean } = {}
+  ): Promise<boolean> {
+    const countAttempt = options.countAttempt !== false;
     const row = await this.db
       .prepare("SELECT attempt_count FROM deliveries WHERE id = ?1")
       .bind(deliveryId)
       .first<{ attempt_count: number }>();
-    const nextAttempt = Number(row?.attempt_count ?? 0) + 1;
-    if (nextAttempt >= MAX_DELIVERY_ATTEMPTS) {
+    const nextAttempt = Number(row?.attempt_count ?? 0) + (countAttempt ? 1 : 0);
+    if (countAttempt && nextAttempt >= MAX_DELIVERY_ATTEMPTS) {
       await this.updateDelivery(
         deliveryId,
         "failed",
@@ -656,7 +660,7 @@ export class Repository {
       return false;
     }
 
-    await this.updateDelivery(deliveryId, "retrying", null, code, message);
+    await this.updateDelivery(deliveryId, "retrying", null, code, message, { incrementAttempt: countAttempt });
     return true;
   }
 
@@ -673,11 +677,11 @@ export class Repository {
             updated_at = ?2
         WHERE id = ?1
           AND (
-            status IN ('queued', 'retrying')
+            (status IN ('queued', 'retrying') AND attempt_count < ?4)
             OR (?3 = 1 AND status = 'waiting_follow')
           )`
       )
-      .bind(deliveryId, now.toISOString(), options.includeWaitingFollow ? 1 : 0)
+      .bind(deliveryId, now.toISOString(), options.includeWaitingFollow ? 1 : 0, MAX_DELIVERY_ATTEMPTS)
       .run();
 
     if (Number(result.meta.changes ?? 0) === 1) return "claimed";
@@ -876,7 +880,9 @@ export class Repository {
   async listAdminAuditLogs(limit = 50): Promise<AdminAuditLog[]> {
     if (!this.db) return [];
 
-    const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 100);
+    // Non-numeric query input arrives as NaN and must fall back instead of reaching .bind().
+    const requested = Number.isFinite(limit) ? Math.trunc(limit) : 50;
+    const safeLimit = Math.min(Math.max(requested, 1), 100);
     const rows = await this.db
       .prepare("SELECT * FROM admin_audit_logs ORDER BY created_at DESC LIMIT ?1")
       .bind(safeLimit)
@@ -1141,7 +1147,7 @@ export class Repository {
     const adminSessions = await this.deleteOlderThan("adminSessions", now.toISOString());
     const adminAuditLogs = await this.deleteOlderThan("adminAuditLogs", daysAgo(now, 90));
     const operationalEvents = await this.deleteOlderThan("operationalEvents", daysAgo(now, 90));
-    const dataDeletionRequests = await this.deleteOlderThan("dataDeletionRequests", daysAgo(now, 7));
+    const dataDeletionRequests = await this.deleteOlderThan("dataDeletionRequests", daysAgo(now, 90));
     const outboundRateLimits = await this.deleteOlderThan("outboundRateLimits", daysAgo(now, 1));
 
     return {
@@ -1167,7 +1173,19 @@ export class Repository {
           deliveries.campaign_id,
           deliveries.ig_user_id,
           deliveries.delivery_type,
-          contact_states.last_comment_id
+          COALESCE(
+            contact_states.last_comment_id,
+            (
+              SELECT substr(recovery_events.event_id, length('comment:') + 1)
+              FROM webhook_events AS recovery_events
+              WHERE recovery_events.campaign_id = deliveries.campaign_id
+                AND recovery_events.ig_user_id = deliveries.ig_user_id
+                AND recovery_events.event_type = 'comment.created'
+                AND recovery_events.event_id LIKE 'comment:%'
+              ORDER BY recovery_events.processed_at DESC
+              LIMIT 1
+            )
+          ) AS last_comment_id
         FROM deliveries
         JOIN campaigns
           ON campaigns.id = deliveries.campaign_id
@@ -1293,8 +1311,10 @@ export class Repository {
     status: string,
     metaMessageId: string | null,
     errorCode: string | null,
-    errorMessage: string | null
+    errorMessage: string | null,
+    options: { incrementAttempt?: boolean } = {}
   ): Promise<void> {
+    const attemptExpression = options.incrementAttempt === false ? "attempt_count" : "attempt_count + 1";
     await this.db
       .prepare(
         `UPDATE deliveries
@@ -1302,7 +1322,7 @@ export class Repository {
             meta_message_id = COALESCE(?3, meta_message_id),
             error_code = ?4,
             error_message = ?5,
-            attempt_count = attempt_count + 1,
+            attempt_count = ${attemptExpression},
             updated_at = ?6
         WHERE id = ?1`
       )

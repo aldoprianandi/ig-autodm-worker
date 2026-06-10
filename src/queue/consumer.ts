@@ -92,8 +92,8 @@ export async function processDeliveryJob(
     const commentId = job.commentId;
     const claim = await claimDelivery(repo, job.deliveryId);
     if (claim) return claim;
-    const outboundDisposition = await ensureOutboundSendAllowed(repo, job, outboundLimit);
-    if (outboundDisposition) return outboundDisposition;
+    const blocked = await ensureOutboundSendAllowed(repo, job, outboundLimit);
+    if (blocked) return blocked;
     const openingText = selectMessageVariant(
       campaign.openingText,
       campaign.openingTextVariants,
@@ -118,8 +118,8 @@ export async function processDeliveryJob(
     if (!commentReplyText) return "ack";
     const claim = await claimDelivery(repo, job.deliveryId);
     if (claim) return claim;
-    const outboundDisposition = await ensureOutboundSendAllowed(repo, job, outboundLimit);
-    if (outboundDisposition) return outboundDisposition;
+    const blocked = await ensureOutboundSendAllowed(repo, job, outboundLimit);
+    if (blocked) return blocked;
     const result = await runRetryableMetaCall(repo, job, () => meta.replyToComment(commentId, commentReplyText));
     if (isDeliveryDisposition(result)) return result;
     return handleSendResult(repo, job, result);
@@ -138,8 +138,8 @@ export async function processDeliveryJob(
     }
     const claim = await claimDelivery(repo, job.deliveryId);
     if (claim) return claim;
-    const outboundDisposition = await ensureOutboundSendAllowed(repo, job, outboundLimit);
-    if (outboundDisposition) return outboundDisposition;
+    const blocked = await ensureOutboundSendAllowed(repo, job, outboundLimit);
+    if (blocked) return blocked;
     const stepText = selectMessageVariant(
       step.text,
       step.textVariants,
@@ -150,12 +150,7 @@ export async function processDeliveryJob(
       return "ack";
     }
     const result = await runRetryableMetaCall(repo, job, () =>
-      meta.sendButtonMessage(
-        job.igUserId,
-        stepText,
-        step.buttonTitle,
-        stepButtonPayload(campaign, stepIndex)
-      )
+      meta.sendButtonMessage(job.igUserId, stepText, step.buttonTitle, stepButtonPayload(campaign, stepIndex))
     );
     if (isDeliveryDisposition(result)) return result;
     return handleButtonStepSendResult(repo, job, result, campaign, stepIndex, queue);
@@ -172,11 +167,12 @@ export async function processDeliveryJob(
   if (job.deliveryType === "final" && campaign.followGateEnabled) {
     const readAllowed = await repo.tryConsumeOutboundRateLimit("instagram_read", Math.max(outboundLimit, 30), 60);
     if (!readAllowed) {
-      return markDeliveryRetrying(
+      return retryDelivery(
         repo,
-        job,
+        job.deliveryId,
         "local_read_rate_limited",
-        "Local Meta read rate limit reached"
+        "Local Meta read rate limit reached",
+        { countAttempt: false }
       );
     }
 
@@ -184,17 +180,18 @@ export async function processDeliveryJob(
     if (isDeliveryDisposition(profile)) return profile;
 
     if (profile.isUserFollowBusiness === null) {
-      return markDeliveryRetrying(
+      return retryDelivery(
         repo,
-        job,
+        job.deliveryId,
         "follow_status_unknown",
-        "Could not verify follow status before final delivery"
+        "Could not verify follow status before final delivery",
+        { countAttempt: false }
       );
     }
 
     if (profile.isUserFollowBusiness !== true) {
-      const outboundDisposition = await ensureOutboundSendAllowed(repo, job, outboundLimit);
-      if (outboundDisposition) return outboundDisposition;
+      const blocked = await ensureOutboundSendAllowed(repo, job, outboundLimit);
+      if (blocked) return blocked;
       const result = await runRetryableMetaCall(repo, job, () =>
         meta.sendButtonMessage(
           job.igUserId,
@@ -220,32 +217,11 @@ export async function processDeliveryJob(
     }
   }
 
-  const outboundDisposition = await ensureOutboundSendAllowed(repo, job, outboundLimit);
-  if (outboundDisposition) return outboundDisposition;
+  const blocked = await ensureOutboundSendAllowed(repo, job, outboundLimit);
+  if (blocked) return blocked;
   const result = await runRetryableMetaCall(repo, job, () => meta.sendText(job.igUserId, campaign.deliveryText));
   if (isDeliveryDisposition(result)) return result;
   return handleSendResult(repo, job, result, "delivered");
-}
-
-async function runRetryableMetaCall<T>(
-  repo: DeliveryRepository,
-  job: DeliveryJob,
-  operation: () => Promise<T>
-): Promise<T | DeliveryDisposition> {
-  try {
-    return await operation();
-  } catch (error) {
-    return markDeliveryRetrying(repo, job, "delivery_exception", unexpectedDeliveryErrorMessage(error));
-  }
-}
-
-function isDeliveryDisposition(value: unknown): value is DeliveryDisposition {
-  return value === "ack" || value === "retry";
-}
-
-function unexpectedDeliveryErrorMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return `Unexpected delivery error: ${redactSensitiveText(message)}`;
 }
 
 function followGateInstruction(buttonTitle: string, customText?: string | null): string {
@@ -278,22 +254,13 @@ async function ensureOutboundSendAllowed(
   const allowed = await repo.tryConsumeOutboundRateLimit("instagram_send", outboundLimit, 60);
   if (allowed) return null;
 
-  return markDeliveryRetrying(
+  return retryDelivery(
     repo,
-    job,
+    job.deliveryId,
     "local_rate_limited",
-    "Local outbound Meta send rate limit reached"
+    "Local outbound Meta send rate limit reached",
+    { countAttempt: false }
   );
-}
-
-async function markDeliveryRetrying(
-  repo: DeliveryRepository,
-  job: DeliveryJob,
-  code: string,
-  message: string
-): Promise<DeliveryDisposition> {
-  const retrying = await repo.markDeliveryRetrying(job.deliveryId, code, message);
-  return retrying === false ? "ack" : "retry";
 }
 
 async function handleSendResult(
@@ -317,11 +284,45 @@ async function handleSendResult(
   }
 
   if (result.retryable) {
-    return markDeliveryRetrying(repo, job, result.code, result.message);
+    return retryDelivery(repo, job.deliveryId, result.code, result.message);
   }
 
   await repo.markDeliveryFailed(job.deliveryId, result.code, result.message);
   return "ack";
+}
+
+async function retryDelivery(
+  repo: DeliveryRepository,
+  deliveryId: string,
+  code: string,
+  message: string,
+  options?: { countAttempt?: boolean }
+): Promise<DeliveryDisposition> {
+  const queuedForRetry = await repo.markDeliveryRetrying(deliveryId, code, message, options);
+  return queuedForRetry ? "retry" : "ack";
+}
+
+// Thrown fetch/network errors must mark the delivery retrying instead of crashing the
+// queue invocation; messages are redacted before storage.
+async function runRetryableMetaCall<T>(
+  repo: DeliveryRepository,
+  job: DeliveryJob,
+  operation: () => Promise<T>
+): Promise<T | DeliveryDisposition> {
+  try {
+    return await operation();
+  } catch (error) {
+    return retryDelivery(repo, job.deliveryId, "delivery_exception", unexpectedDeliveryErrorMessage(error));
+  }
+}
+
+function isDeliveryDisposition(value: unknown): value is DeliveryDisposition {
+  return value === "ack" || value === "retry";
+}
+
+function unexpectedDeliveryErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `Unexpected delivery error: ${redactSensitiveText(message)}`;
 }
 
 async function handleOpeningSendResult(
@@ -368,6 +369,10 @@ async function handleOpeningSendResult(
     }
   }
 
+  if (queue && campaign.dmSteps.length) {
+    await queueButtonStep(repo, queue, job.campaignId, job.igUserId, 0);
+  }
+
   return "ack";
 }
 
@@ -388,8 +393,14 @@ async function handleButtonStepSendResult(
     state: sentStepState(stepIndex)
   });
 
-  void campaign;
-  void queue;
+  if (!queue) return "ack";
+
+  const nextStepIndex = stepIndex + 1;
+  if (campaign.dmSteps[nextStepIndex]) {
+    await queueButtonStep(repo, queue, job.campaignId, job.igUserId, nextStepIndex);
+  } else {
+    await queueFinal(repo, queue, job.campaignId, job.igUserId);
+  }
 
   return "ack";
 }
@@ -479,4 +490,29 @@ function isRecipientUnavailableError(result: Extract<MetaSendResult, { ok: false
     normalized.includes("invalid for a private reply") ||
     (normalized.includes("private reply") && normalized.includes("comment id"))
   );
+}
+
+async function queueFinal(
+  repo: DeliveryRepository,
+  queue: DeliveryQueue,
+  campaignId: string,
+  igUserId: string
+): Promise<void> {
+  const deliveryId = `${campaignId}:${igUserId}:final`;
+  const created = await repo.createDelivery({
+    id: deliveryId,
+    campaignId,
+    igUserId,
+    deliveryType: "final",
+    status: "queued"
+  });
+
+  if (!created) return;
+
+  await queue.send({
+    deliveryId,
+    campaignId,
+    igUserId,
+    deliveryType: "final"
+  });
 }
