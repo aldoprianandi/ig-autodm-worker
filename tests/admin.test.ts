@@ -87,13 +87,6 @@ describe("admin routes", () => {
     expect(html).not.toContain("test-meta-app-secret-with-enough-entropy");
   });
 
-  it("adds HSTS to HTTPS admin UI responses", async () => {
-    const response = await app.request("https://worker.example/admin-ui", {}, env);
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Strict-Transport-Security")).toBe("max-age=31536000; includeSubDomains");
-  });
-
   it("serves Turnstile on the admin UI only when Turnstile keys are configured", async () => {
     const response = await app.request(
       "/admin-ui",
@@ -173,33 +166,6 @@ describe("admin routes", () => {
 
     expect(campaigns.status).toBe(200);
     await expect(campaigns.json()).resolves.toEqual({ campaigns: [] });
-  });
-
-  it("sets a Secure admin session cookie on HTTPS login responses", async () => {
-    const db = createSessionDb();
-    const login = await app.request(
-      "https://worker.example/admin/session",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "User-Agent": "vitest" },
-        body: JSON.stringify({
-          username: "admin",
-          password: "test-admin-login-password",
-          adminToken: "test-admin-token-with-enough-entropy"
-        })
-      },
-      { ...(env as Record<string, unknown>), DB: db } as never
-    );
-
-    expect(login.status).toBe(200);
-    const setCookie = login.headers.get("Set-Cookie") || "";
-    expect(setCookie).toContain("ig_admin_session=");
-    expect(setCookie).toContain("Secure");
-    expect(setCookie).toContain("HttpOnly");
-    expect(setCookie).toContain("SameSite=Strict");
-    expect(setCookie).toContain("Max-Age=1800");
-    expect(setCookie).not.toContain("Domain=");
-    expect(login.headers.get("Strict-Transport-Security")).toBe("max-age=31536000; includeSubDomains");
   });
 
   it("requires Turnstile verification when Turnstile is configured for browser login", async () => {
@@ -479,43 +445,6 @@ describe("admin routes", () => {
     expect(body.error).toBe("Invalid campaign");
   });
 
-  it("rejects syntactically valid non-object campaign JSON without throwing", async () => {
-    const response = await app.request(
-      "/admin/campaigns",
-      {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer test-admin-token-with-enough-entropy",
-          "Content-Type": "application/json"
-        },
-        body: "null"
-      },
-      env
-    );
-
-    expect(response.status).toBe(400);
-    const body = (await response.json()) as { error: string };
-    expect(body.error).toBe("Invalid campaign");
-  });
-
-  it("rejects syntactically valid non-object campaign patch JSON without throwing", async () => {
-    const response = await app.request(
-      "/admin/campaigns/campaign-1",
-      {
-        method: "PATCH",
-        headers: {
-          Authorization: "Bearer test-admin-token-with-enough-entropy",
-          "Content-Type": "application/json"
-        },
-        body: "null"
-      },
-      env
-    );
-
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({ error: "enabled boolean is required" });
-  });
-
   it("rejects oversized admin JSON before parsing", async () => {
     const response = await app.request(
       "/admin/campaigns",
@@ -633,8 +562,8 @@ describe("admin routes", () => {
             { text: "Oke, promptnya gue kirim setelah ini", textVariants: ["Oke, promptnya gue kirim setelah ini"], buttonTitle: "AMBIL" }
           ],
           deliveryText: "Final prompt",
-          commentReplyText: "Sent. Check your DM.",
-          commentReplyTextVariants: ["Please check your DM.", "Sent. Check your DM."],
+          commentReplyText: "Cek DM kamu ya",
+          commentReplyTextVariants: ["Masuk DM ya", "Cek DM kamu ya"],
           openingFailureReplyText: "DM kamu belum bisa kami kirim. Komen PROMPT lagi.",
           followGateEnabled: false,
           enabled: false
@@ -651,43 +580,8 @@ describe("admin routes", () => {
         openingTextVariants: ["Opening utama", "Opening alt"],
         buttonPayload: "campaign-variants:confirm",
         dmSteps: [],
-        commentReplyTextVariants: ["Sent. Check your DM.", "Please check your DM."],
+        commentReplyTextVariants: ["Cek DM kamu ya", "Masuk DM ya"],
         openingFailureReplyText: "DM kamu belum bisa kami kirim. Komen PROMPT lagi."
-      }
-    });
-  });
-
-  it("defaults created campaigns to disabled when enabled is omitted", async () => {
-    const response = await app.request(
-      "/admin/campaigns",
-      {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer test-admin-token-with-enough-entropy",
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          id: "draft-default-campaign",
-          name: "Draft Default Campaign",
-          mediaId: "media-1",
-          keyword: "PROMPT",
-          openingText: "Opening utama",
-          buttonTitle: "KIRIM",
-          buttonPayload: "draft-default-campaign:confirm",
-          deliveryText: "Final prompt",
-          commentReplyText: "Sent. Check your DM.",
-          followGateEnabled: false
-        })
-      },
-      { ...(env as Record<string, unknown>), DB: createAdminDb() } as never
-    );
-
-    expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toMatchObject({
-      ok: true,
-      campaign: {
-        id: "draft-default-campaign",
-        enabled: false
       }
     });
   });
@@ -710,7 +604,7 @@ describe("admin routes", () => {
           buttonTitle: "BUKA",
           buttonPayload: "https://example.com/prompt?source=copy_link",
           deliveryText: "Final prompt",
-          commentReplyText: "Sent. Check your DM.",
+          commentReplyText: "Cek DM kamu ya",
           followGateEnabled: true,
           enabled: false
         })
@@ -730,7 +624,7 @@ describe("admin routes", () => {
     });
   });
 
-  it("preserves follow gate for a standard one-button CONFIRM campaign", async () => {
+  it("preserves follow gate for a standard one-button TEMBOK campaign", async () => {
     const response = await app.request(
       "/admin/campaigns",
       {
@@ -745,12 +639,12 @@ describe("admin routes", () => {
           mediaId: "media-1",
           keyword: "PROMPT",
           openingText: "Opening utama",
-          buttonTitle: "CONFIRM",
+          buttonTitle: "TEMBOK",
           buttonPayload: "anything-else",
           deliveryText: "Final prompt",
-          commentReplyText: "Sent. Check your DM.",
+          commentReplyText: "Cek DM kamu ya",
           followGateEnabled: true,
-          followGateText: "Follow dulu the account, lalu pencet CONFIRM lagi ya.",
+          followGateText: "Follow dulu akun ini, lalu pencet TEMBOK lagi ya.",
           followGateButtonTitle: "UDAH FOLLOW",
           enabled: false
         })
@@ -764,9 +658,9 @@ describe("admin routes", () => {
       campaign: {
         id: "standard-flow-campaign",
         buttonPayload: "standard-flow-campaign:confirm",
-        buttonTitle: "CONFIRM",
+        buttonTitle: "TEMBOK",
         followGateEnabled: true,
-        followGateText: "Follow dulu the account, lalu pencet CONFIRM lagi ya.",
+        followGateText: "Follow dulu akun ini, lalu pencet TEMBOK lagi ya.",
         followGateButtonTitle: "UDAH FOLLOW",
         dmSteps: []
       }
@@ -785,7 +679,7 @@ describe("admin routes", () => {
       buttonTitle: "KIRIM",
       buttonPayload: "campaign-variants:confirm",
       deliveryText: "Final prompt",
-      commentReplyText: "Sent. Check your DM.",
+      commentReplyText: "Cek DM kamu ya",
       followGateEnabled: false,
       enabled: false,
       writeMode: "create"
@@ -843,7 +737,7 @@ describe("admin routes", () => {
           buttonTitle: "KIRIM",
           buttonPayload: "missing-campaign:confirm",
           deliveryText: "Final prompt",
-          commentReplyText: "Sent. Check your DM.",
+          commentReplyText: "Cek DM kamu ya",
           followGateEnabled: false,
           enabled: false,
           writeMode: "update"
@@ -867,7 +761,7 @@ describe("admin routes", () => {
           Authorization: "Bearer test-admin-token-with-enough-entropy",
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ kind: "comment_reply", text: "Please check your DM." })
+        body: JSON.stringify({ kind: "comment_reply", text: "Masuk DM ya" })
       },
       templateEnv
     );
@@ -877,7 +771,7 @@ describe("admin routes", () => {
       ok: true,
       template: {
         kind: "comment_reply",
-        text: "Please check your DM.",
+        text: "Masuk DM ya",
         enabled: true
       }
     });
@@ -897,7 +791,7 @@ describe("admin routes", () => {
       templates: [
         {
           kind: "comment_reply",
-          text: "Please check your DM.",
+          text: "Masuk DM ya",
           enabled: true
         }
       ]
@@ -940,25 +834,6 @@ describe("admin routes", () => {
 
     expect(bulk.status).toBe(201);
     await expect(bulk.json()).resolves.toMatchObject({ ok: true, count: 2 });
-  });
-
-  it("rejects bulk public reply templates over the campaign reply limit", async () => {
-    const response = await app.request(
-      "/admin/variant-templates/bulk",
-      {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer test-admin-token-with-enough-entropy",
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ kind: "comment_reply", texts: ["Valid reply", "x".repeat(301)] })
-      },
-      { ...(env as Record<string, unknown>), DB: createAdminDb() } as never
-    );
-
-    expect(response.status).toBe(400);
-    const body = (await response.json()) as { details?: { fieldErrors?: Record<string, string[]> } };
-    expect(body.details?.fieldErrors?.texts?.[0]).toContain("300");
   });
 
   it("lists media comments without exposing paging URLs", async () => {

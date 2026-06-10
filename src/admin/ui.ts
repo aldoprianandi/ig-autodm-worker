@@ -16,7 +16,9 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f4f1ea">
     <link rel="icon" href="data:,">
+    ${turnstileEnabled ? `<link rel="preconnect" href="https://challenges.cloudflare.com">` : ""}
     <title>IG AutoDM Worker</title>
     <style nonce="${nonce}">
       :root {
@@ -63,6 +65,8 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
         display: none;
       }
       button, input, textarea { font: inherit; }
+      a, button, summary, input, textarea { touch-action: manipulation; }
+      a, button, summary { -webkit-tap-highlight-color: transparent; }
       button {
         align-items: center;
         border: 1px solid var(--line);
@@ -162,6 +166,7 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
         line-height: 0.88;
         margin: 0;
         max-width: 820px;
+        text-wrap: balance;
       }
       .lock-copy p {
         color: var(--soft-ink);
@@ -307,6 +312,8 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
         width: 100%;
         grid-template-columns: minmax(250px, 300px) minmax(0, 1fr) minmax(320px, 380px);
         grid-template-areas:
+          "hero hero hero"
+          "status status status"
           "list guide preview"
           "list editor preview"
           "list system system";
@@ -318,16 +325,16 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
         border: 1px solid var(--line);
         display: grid;
         gap: 20px;
-        display: none;
-        grid-column: 1 / -1;
+        grid-area: hero;
         grid-template-columns: minmax(0, 1fr) auto;
         padding: 16px 18px;
       }
-      .hero-row h2 {
+      .hero-row h1 {
         font-size: 28px;
         letter-spacing: -0.045em;
         line-height: 1;
         margin: 0;
+        text-wrap: balance;
       }
       .hero-row p { color: var(--muted); margin: 8px 0 0; }
       .top-actions { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -340,11 +347,12 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
       }
       .status-strip {
         align-items: center;
+        background: rgba(255, 253, 248, 0.82);
         border: 1px solid var(--line);
-        display: none;
+        display: flex;
         flex-wrap: wrap;
         gap: 0;
-        grid-column: 1 / -1;
+        grid-area: status;
       }
       .status-strip span {
         color: var(--soft-ink);
@@ -771,12 +779,21 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
       .readiness-list strong { color: var(--ink); }
       .readiness-item {
         align-items: center;
+        background: transparent;
+        border: 0;
         cursor: pointer;
         display: flex;
+        font-weight: inherit;
         gap: 8px;
         justify-content: space-between;
+        min-height: auto;
+        padding: 0;
+        text-align: left;
+        width: 100%;
       }
+      .readiness-item:active { transform: none; }
       .readiness-item:focus-visible {
+        box-shadow: none;
         outline: 2px solid var(--accent);
         outline-offset: 2px;
       }
@@ -979,21 +996,11 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
         padding: 28px;
         text-align: center;
       }
-      .skeleton {
-        animation: shimmer 1.1s infinite linear;
-        background: linear-gradient(90deg, #ece5da, #fffdf8, #ece5da);
-        background-size: 220% 100%;
-      }
-      .skeleton-line { height: 14px; margin: 9px 0; }
       .fade-in { animation: fadeIn 420ms var(--ease) both; }
 
       @keyframes fadeIn {
         from { opacity: 0; transform: translateY(8px); }
         to { opacity: 1; transform: translateY(0); }
-      }
-      @keyframes shimmer {
-        from { background-position: 120% 0; }
-        to { background-position: -120% 0; }
       }
 
       @media (max-width: 980px) {
@@ -1001,13 +1008,15 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
         .content {
           grid-template-columns: 1fr;
           grid-template-areas:
+            "hero"
+            "status"
             "guide"
             "list"
             "editor"
             "preview"
             "system";
         }
-        .hero-row { align-items: stretch; flex-direction: column; }
+        .hero-row { align-items: stretch; grid-template-columns: 1fr; }
         .summary-rail { min-width: 0; }
         .campaign-switcher,
         .work-grid > .surface:first-child,
@@ -1056,7 +1065,7 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
       <section id="bootScreen" class="boot-screen">
         <div class="checking-card">
           <div class="eyebrow">Dashboard internal</div>
-          <strong>Mengecek akses...</strong>
+          <strong>Mengecek akses…</strong>
           <p>Kalau login masih aktif, dashboard akan terbuka otomatis.</p>
         </div>
       </section>
@@ -1082,18 +1091,18 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
             <div class="field-row">
               <label>
                 Username
-                <input id="adminUsername" type="text" autocomplete="username" spellcheck="false" placeholder="admin">
+                <input id="adminUsername" name="username" type="text" autocomplete="username" spellcheck="false" placeholder="admin">
                 <span class="help">Akun operator yang terdaftar.</span>
               </label>
               <label>
                 Password
-                <input id="adminPassword" type="password" autocomplete="current-password" spellcheck="false" placeholder="Password">
+                <input id="adminPassword" name="password" type="password" autocomplete="current-password" spellcheck="false" placeholder="Password">
                 <span class="help">Password akun operator.</span>
               </label>
             </div>
             <label>
               Security key
-              <input id="adminToken" type="password" autocomplete="off" spellcheck="false" placeholder="Tempel security key">
+              <input id="adminToken" name="adminToken" type="password" autocomplete="off" spellcheck="false" placeholder="Tempel security key">
               <span class="help">Kode akses tambahan untuk membuka dashboard.</span>
             </label>
             ${turnstileMarkup}
@@ -1119,7 +1128,7 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
           <section class="hero-row">
             <div>
               <div class="eyebrow">Auto-DM Instagram</div>
-              <h2>Campaign Auto-DM</h2>
+              <h1>Campaign Auto-DM</h1>
               <p id="selectedCampaignId">Pilih campaign atau buat baru. Campaign aktif akan merespons komentar sesuai kata pemicu.</p>
             </div>
             <div class="summary-rail" aria-label="Ringkasan dashboard">
@@ -1256,7 +1265,7 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
                             <strong>Library DM pertama</strong>
                             <span class="help">Klik template untuk menambahkannya ke variasi. Campaign tetap perlu disimpan.</span>
                           </div>
-                          <label>Cari<input id="openingTemplateSearch" placeholder="Cari DM pertama..." autocomplete="off"></label>
+                          <label>Cari<input id="openingTemplateSearch" placeholder="Cari DM pertama…" autocomplete="off"></label>
                         </div>
                         <div id="openingTemplateList" class="template-list">
                           <div class="empty">Belum ada template.</div>
@@ -1283,7 +1292,7 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
                         </div>
                       </div>
                     </details>
-                    <label>Prompt/link akhir<textarea id="deliveryText" name="deliveryText" maxlength="2000" required placeholder="Paste the final link or full prompt here."></textarea><span class="help">Isi utama yang diterima user di akhir alur DM.</span><span id="deliveryTextError" class="field-error"></span></label>
+                    <label>Prompt/link akhir<textarea id="deliveryText" name="deliveryText" maxlength="2000" required placeholder="Tempel link Notion atau isi prompt lengkap di sini."></textarea><span class="help">Isi utama yang diterima user di akhir alur DM.</span><span id="deliveryTextError" class="field-error"></span></label>
                   </section>
 
                   <section class="form-section">
@@ -1291,7 +1300,7 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
                       <h4>4. Balasan komentar publik</h4>
                       <p>Muncul sebagai reply di komentar setelah DM pertama terkirim. Kosongkan kalau tidak mau balasan publik.</p>
                     </div>
-                    <label>Balasan publik utama<textarea id="commentReplyText" name="commentReplyText" maxlength="300" placeholder="Sent. Check your DM."></textarea><span class="help">Opsional. Berguna untuk memberi tahu user bahwa DM sudah dikirim. Maksimal 300 karakter.</span><span id="commentReplyTextError" class="field-error"></span></label>
+                    <label>Balasan publik utama<textarea id="commentReplyText" name="commentReplyText" maxlength="300" placeholder="Cek DM kamu ya"></textarea><span class="help">Opsional. Berguna untuk memberi tahu user bahwa DM sudah dikirim. Maksimal 300 karakter.</span><span id="commentReplyTextError" class="field-error"></span></label>
                     <label>Balasan kalau DM gagal<textarea id="openingFailureReplyText" name="openingFailureReplyText" maxlength="300" placeholder="DM kamu belum bisa kami kirim. Buka izin DM, lalu komen PROMPT lagi sebagai komentar baru."></textarea><span class="help">Opsional. Dikirim sebagai public reply kalau DM pertama ditolak karena user belum bisa menerima pesan.</span><span id="openingFailureReplyTextError" class="field-error"></span></label>
                     <details class="template-panel">
                       <summary>
@@ -1302,13 +1311,13 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
                         <span class="summary-action">Buka</span>
                       </summary>
                       <div class="variant-library">
-                        <label>Variasi balasan publik<textarea id="commentReplyTextVariants" name="commentReplyTextVariants" placeholder="Done. Please check your DM.&#10;Please check your DM.&#10;Done, check your DM"></textarea><span class="help">Satu variasi per baris. Balasan utama tetap ikut sebagai variasi.</span><span id="commentReplyTextVariantsError" class="field-error"></span></label>
+                        <label>Variasi balasan publik<textarea id="commentReplyTextVariants" name="commentReplyTextVariants" placeholder="Udah gue kirim ke DM&#10;Masuk DM ya&#10;Beres, cek DM kamu"></textarea><span class="help">Satu variasi per baris. Balasan utama tetap ikut sebagai variasi.</span><span id="commentReplyTextVariantsError" class="field-error"></span></label>
                         <div class="variant-library-head">
                           <div>
                             <strong>Library balasan publik</strong>
                             <span class="help">Klik template untuk menambahkannya ke variasi. Campaign tetap perlu disimpan.</span>
                           </div>
-                          <label>Cari<input id="commentReplyTemplateSearch" placeholder="Cari balasan..." autocomplete="off"></label>
+                          <label>Cari<input id="commentReplyTemplateSearch" placeholder="Cari balasan…" autocomplete="off"></label>
                         </div>
                         <div id="commentReplyTemplateList" class="template-list">
                           <div class="empty">Belum ada template.</div>
@@ -1364,12 +1373,12 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
               <div class="preview-body">
                 <div class="readiness-list" aria-label="Checklist sebelum aktif">
                   <strong>Checklist sebelum aktif</strong>
-                    <div id="readyPost" class="readiness-item missing" role="button" tabindex="0"><span>Post</span><span>Belum dipilih</span></div>
-                    <div id="readyKeyword" class="readiness-item missing" role="button" tabindex="0"><span>Pemicu</span><span>Belum diisi</span></div>
-                    <div id="readyOpening" class="readiness-item missing" role="button" tabindex="0"><span>DM pertama + tombol</span><span>Belum lengkap</span></div>
-                    <div id="readyFollowGate" class="readiness-item missing" role="button" tabindex="0"><span>Follow gate</span><span>Mati</span></div>
-                    <div id="readyFinal" class="readiness-item missing" role="button" tabindex="0"><span>Prompt/link akhir</span><span>Belum diisi</span></div>
-                    <div id="readyReply" class="readiness-item ok" role="button" tabindex="0"><span>Balasan publik</span><span>Mati</span></div>
+                    <button id="readyPost" class="readiness-item missing" type="button"><span>Post</span><span>Belum dipilih</span></button>
+                    <button id="readyKeyword" class="readiness-item missing" type="button"><span>Pemicu</span><span>Belum diisi</span></button>
+                    <button id="readyOpening" class="readiness-item missing" type="button"><span>DM pertama + tombol</span><span>Belum lengkap</span></button>
+                    <button id="readyFollowGate" class="readiness-item missing" type="button"><span>Follow gate</span><span>Mati</span></button>
+                    <button id="readyFinal" class="readiness-item missing" type="button"><span>Prompt/link akhir</span><span>Belum diisi</span></button>
+                    <button id="readyReply" class="readiness-item ok" type="button"><span>Balasan publik</span><span>Mati</span></button>
                 </div>
                 <div class="ig-preview-block">
                   <div>
@@ -1556,17 +1565,11 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
       void resumeSession();
 
       function bindReadyAction(id, action) {
-        const node = $(id);
-        node.addEventListener("click", action);
-        node.addEventListener("keydown", (event) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          action();
-        });
+        $(id).addEventListener("click", action);
       }
 
       async function resumeSession() {
-        setLoginLoading(true, "Mengecek akses");
+        setLoginLoading(true, "Mengecek akses…");
         try {
           const response = await fetch("/admin/session", {
             method: "GET",
@@ -1885,10 +1888,11 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
           useButton.setAttribute("aria-pressed", media.id === state.selectedMediaId ? "true" : "false");
           useButton.addEventListener("click", () => selectMedia(media));
           actions.append(useButton);
-          if (media.permalink) {
+          const permalink = safeHttpsUrl(media.permalink);
+          if (permalink) {
             const link = document.createElement("a");
             link.className = "post-link";
-            link.href = media.permalink;
+            link.href = permalink;
             link.target = "_blank";
             link.rel = "noreferrer";
             link.textContent = "Lihat di Instagram";
@@ -1928,7 +1932,7 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
         $("enabled").checked = false;
         $("followGateEnabled").checked = false;
         $("buttonTitle").value = "KIRIM PROMPT";
-        $("commentReplyText").value = "Sent. Check your DM.";
+        $("commentReplyText").value = "Cek DM kamu ya";
         $("commentReplyTextVariants").value = "";
         $("openingTextVariants").value = "";
         renderDmSteps([]);
@@ -2057,7 +2061,7 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
 
         state.saving = true;
         updateActionLock();
-        setSaveState("menyimpan", "warn");
+        setSaveState("menyimpan…", "warn");
         try {
           const saved = await adminFetch("/admin/campaigns", {
             method: "POST",
@@ -2100,7 +2104,7 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
         state.saving = true;
         updateActionLock();
         try {
-          setSaveState("menjeda", "warn");
+          setSaveState("menjeda…", "warn");
           await adminFetch("/admin/campaigns/" + encodeURIComponent(state.selectedId), {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -2139,7 +2143,7 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
         state.saving = true;
         updateActionLock();
         try {
-          setSaveState("menghapus", "warn");
+          setSaveState("menghapus…", "warn");
           await adminFetch("/admin/campaigns/" + encodeURIComponent(campaignId), { method: "DELETE" });
           state.campaigns = state.campaigns.filter((item) => item.id !== campaignId);
           state.selectedId = null;
@@ -2419,7 +2423,7 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
 
       function truncate(value, max) {
         if (!value) return "";
-        return value.length > max ? value.slice(0, max - 1).trimEnd() + "..." : value;
+        return value.length > max ? value.slice(0, max - 1).trimEnd() + "…" : value;
       }
 
       function collectVariantPool(primaryText, rawVariants) {
@@ -2584,14 +2588,14 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
         $("reloadCampaignButtonBottom").disabled = !formEnabled || state.saving;
       }
 
-      function setLoginLoading(loading, label = "Memeriksa akses") {
+      function setLoginLoading(loading, label = "Memeriksa akses…") {
         $("connectButton").disabled = loading;
         $("connectButton").textContent = loading ? label : "Masuk";
       }
 
       function setWorkspaceLoading(loading) {
         $("refreshButton").disabled = loading;
-        $("connectionState").textContent = loading ? "Memuat data" : "Terhubung";
+        $("connectionState").textContent = loading ? "Memuat data…" : "Terhubung";
       }
 
       function showLoginNotice(message, ok) {
@@ -2829,6 +2833,16 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
         const date = new Date(value);
         if (Number.isNaN(date.getTime())) return value;
         return date.toLocaleString();
+      }
+
+      // Upstream values are only ever rendered as link targets when they are https URLs.
+      function safeHttpsUrl(value) {
+        if (typeof value !== "string" || !value) return "";
+        try {
+          return new URL(value).protocol === "https:" ? value : "";
+        } catch {
+          return "";
+        }
       }
     </script>
   </body>
