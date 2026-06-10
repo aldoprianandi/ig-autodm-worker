@@ -1,19 +1,28 @@
 # IG AutoDM Worker
 
+[![CI](https://github.com/aldoprianandi/ig-autodm-worker/actions/workflows/ci.yml/badge.svg)](https://github.com/aldoprianandi/ig-autodm-worker/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-orange)](https://workers.cloudflare.com/)
+[![Official Meta API only](https://img.shields.io/badge/Meta%20API-official%20only-blue)](docs/04-security-and-compliance.md)
+
 Self-hosted Instagram comment-to-DM automation on Cloudflare Workers using the official Meta Instagram API.
 
-This project is a single-account template for creators and small operators who want to own their infrastructure instead of giving a third-party SaaS direct access to Instagram audience workflows.
+This project is a single-account template for creators and small operators who want to own their infrastructure instead of giving a third-party SaaS direct access to Instagram audience workflows. "Comment a keyword, get the link in your DM" — without renting it.
+
+![Admin console with campaign editor, live follower preview, and readiness checklist](assets/admin-ui-preview.png)
 
 ## What It Does
 
-- Watches configured Instagram media IDs for configured comment keywords.
-- Records Meta webhooks in Cloudflare D1 with idempotency.
-- Queues an opening private reply with a postback button.
-- Sends an optional public comment reply after the opening delivery is marked sent.
+- Watches configured Instagram media IDs for configured comment keywords, with typo-tolerant fuzzy matching (Damerau-Levenshtein, word-order and stop-word aware).
+- Records Meta webhooks in Cloudflare D1 with idempotency, plus a cron poller that catches missed webhooks.
+- Queues an opening private reply with a postback button; the flow engine also supports chained DM button steps and auto-advancing to the final delivery (multi-step saves stay locked off in this template for App Review-grade behavior).
+- Rotates message variants deterministically per user (opening, public reply, and each DM step), backed by a reusable searchable template library.
+- Sends an optional public comment reply after the opening delivery is marked sent, and an optional public rescue reply when the DM cannot be delivered.
+- Supports an optional follow gate: the final prompt waits until the user follows the account, with a retry button and `READY` text fallback.
 - Sends the final prompt or link only after user interaction by default.
-- Supports a browser admin console at `/admin-ui`.
-- Refreshes long-lived Instagram tokens and stores refreshed tokens encrypted in D1.
-- Keeps a global `AUTOMATION_ENABLED` kill switch.
+- Ships a browser admin console at `/admin-ui` with a guided campaign builder, live Instagram-style preview, readiness checklist, and operational dashboard.
+- Refreshes long-lived Instagram tokens on a schedule and stores refreshed tokens AES-GCM-encrypted in D1.
+- Keeps a global `AUTOMATION_ENABLED` kill switch and a local outbound send rate limiter.
 - Does not ship an OAuth callback route; the single-account setup uses a Meta-generated Instagram token.
 
 ```mermaid
@@ -147,6 +156,12 @@ https://<worker-name>.<cloudflare-account>.workers.dev/webhooks/meta
 ```
 
 Keep `AUTOMATION_ENABLED=false` for the first deploy. After health, webhook verification, admin login, and one disabled/draft campaign are verified, set it to `true` and enable only the test campaign for the first end-to-end run.
+
+## Why Self-Host
+
+SaaS comment-to-DM tools sit between your Instagram account and your audience: they hold your access token, your contact data, and your monthly bill. This template runs the same workflow on your own Cloudflare account — typically within the free tier — with HMAC-verified webhooks, encrypted token storage, rate-limited sends, and an auditable admin surface you fully control.
+
+If this replaces a subscription for you, a star helps other creators find it.
 
 ## Documentation
 
