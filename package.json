@@ -50,7 +50,7 @@
     "miniflare": "4.20260520.0",
     "typescript": "^6.0.3",
     "vitest": "^3.2.6",
-    "wrangler": "^4.93.1"
+    "wrangler": "^4.101.0"
   },
   "overrides": {
     "miniflare": {
