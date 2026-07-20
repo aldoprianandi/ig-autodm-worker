@@ -10,3 +10,7 @@ wrangler.toml
 dist/
 coverage/
 *.log
+
+.secrets.json
+.dev.vars*
+.env*
