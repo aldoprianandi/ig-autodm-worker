@@ -5,6 +5,7 @@
 | Feature | Status | Notes |
 | --- | --- | --- |
 | Official Meta Instagram API | Live | No scraping, password, session cookie, private API, or browser bot. |
+| Offline setup doctor | Live | `npm run doctor` checks local runtime, bindings, key names, safety flags, and private-file tracking without printing values or contacting Cloudflare or Meta. |
 | One connected Instagram account | Live | This template is designed for one Instagram Business or Creator account per deployment. |
 | Comment keyword trigger | Live | Campaigns match by exact media ID plus configured keyword; multi-word keywords require every token, with small typo tolerance. |
 | Opening private reply | Live | Sent through Instagram Messaging API using `recipient.comment_id`. |

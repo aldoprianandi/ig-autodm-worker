@@ -1,6 +1,6 @@
 {
   "name": "ig-autodm-worker",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Self-hosted Instagram comment-to-DM automation on Cloudflare Workers using the official Meta API.",
   "private": true,
   "license": "MIT",
@@ -18,6 +18,7 @@
     "typecheck": "tsc --noEmit",
     "infra:validate": "npm run infra:dry-run && npm run db:migrate:example",
     "infra:dry-run": "wrangler deploy --dry-run --config wrangler.example.toml",
+    "doctor": "node scripts/doctor.mjs",
     "scan:oss": "node scripts/oss-scan.mjs",
     "db:migrate:example": "node scripts/d1-migrate-example.mjs",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",

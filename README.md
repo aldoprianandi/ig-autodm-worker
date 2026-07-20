@@ -62,9 +62,12 @@ Prerequisites:
 npm install
 cp .dev.vars.example .dev.vars
 cp wrangler.example.toml wrangler.toml
+npm run doctor
 npm run db:migrate:local
 npm run dev
 ```
+
+Edit the copied files before running the doctor. The doctor is an offline, read-only check: it reports key names and setup status without printing values, contacting Cloudflare or Meta, migrating data, or deploying.
 
 Then check:
 
@@ -163,6 +166,12 @@ SaaS comment-to-DM tools sit between your Instagram account and your audience: t
 
 If this replaces a subscription for you, a star helps other creators find it.
 
+## Feedback and Support
+
+- Use [GitHub Discussions](https://github.com/aldoprianandi/ig-autodm-worker/discussions) for setup questions, ideas, and self-host showcases.
+- Use [GitHub Issues](https://github.com/aldoprianandi/ig-autodm-worker/issues) for reproducible bugs and documentation gaps.
+- Read the [Support Guide](SUPPORT.md) before sharing diagnostics. Never post tokens, account IDs, live media IDs, or deployment details.
+
 ## Documentation
 
 - [Product Requirements](docs/01-prd.md)
@@ -175,7 +184,9 @@ If this replaces a subscription for you, a star helps other creators find it.
 - [API Reference](docs/09-api-reference.md)
 - [Feature Matrix](docs/10-feature-matrix.md)
 - [Runbook](docs/runbook.md)
+- [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
+- [Support](SUPPORT.md)
 - [Security Policy](SECURITY.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 
