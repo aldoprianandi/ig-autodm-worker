@@ -56,25 +56,32 @@ describe("admin routes", () => {
     expect(response.headers.get("X-Frame-Options")).toBe("DENY");
     const html = await response.text();
     expect(html).toContain("IG AutoDM Worker");
+    expect(html).toContain('<html lang="en">');
     expect(html).toContain("data-admin-ui");
     expect(html).toContain("Login dashboard");
-    expect(html).toContain("Masuk ke dashboard");
+    expect(html).toContain("Sign in to the dashboard");
     expect(html).toContain("Security key");
     expect(html).toContain("/admin/session");
     expect(html).toContain("/admin/bootstrap");
-    expect(html).toContain("Simpan Draft");
-    expect(html).toContain("Aktifkan campaign");
-    expect(html).toContain("Hapus campaign");
+    expect(html).toContain("Save draft");
+    expect(html).toContain("Activate campaign");
+    expect(html).toContain("Delete campaign");
     expect(html).toContain("/admin/campaigns/");
-    expect(html).toContain("Preview follower");
-    expect(html).toContain("langkah DM tambahan");
-    expect(html).toContain("Wajib follow sebelum prompt akhir");
-    expect(html).toContain("Teks saat belum follow");
+    expect(html).toContain("Follower preview");
+    expect(html).toContain("additional DM steps");
+    expect(html).toContain("Require a follow before the final prompt");
+    expect(html).toContain("Not-following message");
     expect(html).toContain("followGateEnabled");
     expect(html).toContain("followGateText");
     expect(html).toContain("followGateButtonTitle");
     expect(html).toContain("openingFailureReplyText");
     expect(html).toContain("Follow gate");
+    expect(html).toContain('id="adminUsername"');
+    expect(html).toContain('id="adminPassword"');
+    expect(html).toContain('id="saveCampaignButton"');
+    expect(html).not.toContain("Masuk ke dashboard");
+    expect(html).not.toContain("Simpan Draft");
+    expect(html).not.toContain("Aktifkan campaign");
     expect(html).not.toContain("tanpa edit database manual");
     expect(html).not.toContain("Browser cuma nyimpen session sementara");
     expect(html).not.toContain("secret values embedded");
@@ -85,6 +92,10 @@ describe("admin routes", () => {
     expect(html).not.toContain("test-admin-token-with-enough-entropy");
     expect(html).not.toContain("ig-token");
     expect(html).not.toContain("test-meta-app-secret-with-enough-entropy");
+
+    const embeddedScript = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)?.[1];
+    expect(embeddedScript).toBeTruthy();
+    expect(() => new Function(embeddedScript as string)).not.toThrow();
   });
 
   it("serves Turnstile on the admin UI only when Turnstile keys are configured", async () => {
