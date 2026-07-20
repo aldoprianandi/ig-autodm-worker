@@ -25,7 +25,7 @@
 | Guided campaign builder | Live | Recent Instagram posts can be selected in the dashboard; campaign setup uses a left Auto-DM list, center editor, sticky save/activation actions, and right follower preview/checklist. |
 | Instagram-style campaign preview | Live | `/admin-ui` renders a local preview of public comment reply and multi-step DM bubbles from the current form without calling Instagram. |
 | Draft vs activation | Live | New campaigns save as draft first; activation is a separate confirmed action with validation. |
-| Operational dashboard | Live | Counts campaigns/state/deliveries, token source, and runtime limits without token values. |
+| Operational dashboard | Live | Counts campaigns/state/deliveries, token source, and runtime limits without token values; `send_status_unknown` failures are counted separately and surfaced as needing manual review. |
 | Encrypted token vault | Live | Refreshed Instagram tokens are encrypted in D1 with `TOKEN_ENCRYPTION_KEY`. |
 | Automatic token refresh | Live | Cron refreshes long-lived Instagram tokens when due. |
 | Outbound send limiter | Live | Queue consumer rate-limits local Meta sends before calling Graph. |

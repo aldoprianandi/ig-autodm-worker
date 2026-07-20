@@ -6,7 +6,7 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
     : "";
   const turnstileMarkup = turnstileEnabled
     ? `<div class="turnstile-wrap">
-              <div class="cf-turnstile" data-sitekey="${escapedTurnstileSiteKey}" data-theme="light"></div>
+              <div class="cf-turnstile" data-sitekey="${escapedTurnstileSiteKey}" data-action="admin-login" data-theme="light"></div>
               <span class="help">Additional security verification provided by Cloudflare.</span>
             </div>`
     : "";
@@ -342,8 +342,8 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
       .summary-rail {
         border: 1px solid var(--line);
         display: grid;
-        grid-template-columns: repeat(4, minmax(86px, 1fr));
-        min-width: min(520px, 100%);
+        grid-template-columns: repeat(5, minmax(86px, 1fr));
+        min-width: min(640px, 100%);
       }
       .status-strip {
         align-items: center;
@@ -401,6 +401,11 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
         font-weight: 760;
         letter-spacing: -0.06em;
       }
+      .metric.warn {
+        background: var(--danger-soft);
+        color: var(--danger);
+      }
+      .metric.warn span { color: var(--danger); }
 
       .work-grid {
         display: contents;
@@ -1136,6 +1141,7 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
               <div class="metric"><span>Sent</span><strong id="deliveryCount">-</strong></div>
               <div class="metric"><span>Failed</span><strong id="failedCount">-</strong></div>
               <div class="metric"><span>Retried</span><strong id="retryingCount">-</strong></div>
+              <div id="unknownStatusMetric" class="metric"><span>Needs review</span><strong id="unknownStatusCount">-</strong></div>
             </div>
           </section>
 
@@ -1340,8 +1346,8 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
                     <summary>Advanced settings</summary>
                     <div class="advanced-body">
                       <div class="field-row">
-                        <label>ID post<input id="mediaId" name="mediaId" aria-required="true"><span class="help">Filled automatically from the selected post. You can paste it manually if the post list fails to load.</span><span id="mediaIdAdvancedError" class="field-error"></span></label>
-                        <label>ID campaign<input id="campaignId" name="campaignId" required><span class="help">Generated automatically. Change it only when you need a specific ID.</span><span id="campaignIdError" class="field-error"></span></label>
+                        <label>Post ID<input id="mediaId" name="mediaId" aria-required="true"><span class="help">Filled automatically from the selected post. You can paste it manually if the post list fails to load.</span><span id="mediaIdAdvancedError" class="field-error"></span></label>
+                        <label>Campaign ID<input id="campaignId" name="campaignId" required><span class="help">Generated automatically. Change it only when you need a specific ID.</span><span id="campaignIdError" class="field-error"></span></label>
                       </div>
                       <div class="field-row">
                         <label>Button payload<input id="buttonPayload" name="buttonPayload" required readonly><span class="help">Generated automatically to identify the button the user tapped.</span><span id="buttonPayloadError" class="field-error"></span></label>
@@ -1449,7 +1455,7 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
                   <h3>Selected campaign <span id="selectedState" class="pill off">none</span></h3>
                   <div class="runtime-list">
                     <div class="runtime-item"><span>Trigger</span><strong id="selectedKeyword">-</strong></div>
-                    <div class="runtime-item"><span>ID post</span><strong id="selectedMedia">-</strong></div>
+                    <div class="runtime-item"><span>Post ID</span><strong id="selectedMedia">-</strong></div>
                     <div class="runtime-item"><span>Public reply</span><strong id="selectedReply">-</strong></div>
                   </div>
                 </div>
@@ -1778,19 +1784,32 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
         $("deliveryCount").textContent = counts.deliveries ?? "-";
         $("failedCount").textContent = counts.failedDeliveries ?? "-";
         $("retryingCount").textContent = counts.retryingDeliveries ?? "-";
+        const unknownStatusCount = counts.sendStatusUnknownDeliveries ?? 0;
+        $("unknownStatusCount").textContent = String(unknownStatusCount);
+        $("unknownStatusMetric").className = "metric" + (unknownStatusCount > 0 ? " warn" : "");
+        $("unknownStatusMetric").title = unknownStatusCount > 0
+          ? "Meta may have accepted these sends. Reconcile them manually before retrying."
+          : "No deliveries require manual reconciliation.";
 
         const token = dashboard?.token || {};
         $("tokenSource").textContent = token.source || "-";
         $("tokenExpiry").textContent = formatDate(token.expiresAt);
         $("tokenError").textContent = token.lastError || "none";
-        $("runtimeStatus").textContent = token.lastError ? "check" : "online";
-        $("runtimeStatus").className = "pill " + (token.lastError ? "warn" : "ok");
+        const runtimeNeedsReview = Boolean(token.lastError) || unknownStatusCount > 0;
+        $("runtimeStatus").textContent = runtimeNeedsReview ? "check" : "online";
+        $("runtimeStatus").className = "pill " + (runtimeNeedsReview ? "warn" : "ok");
         $("sendLimit").textContent = (dashboard?.limits?.metaSendsPerMinute ?? "-") + "/min";
         $("pollLimit").textContent = String(dashboard?.limits?.pollLimitPerMedia ?? "-");
-        $("readinessRuntime").textContent = token.lastError ? "check token" : "ready";
+        $("readinessRuntime").textContent = token.lastError
+          ? "check token"
+          : unknownStatusCount > 0
+            ? "reconcile delivery"
+            : "ready";
         $("readinessLive").textContent = String(counts.enabledCampaigns ?? 0);
         $("readinessToken").textContent = token.source || "-";
-        $("readinessError").textContent = token.lastError || "none";
+        $("readinessError").textContent = token.lastError || (unknownStatusCount > 0
+          ? unknownStatusCount + " delivery status unknown"
+          : "none");
       }
 
       function renderCampaigns() {
@@ -2711,9 +2730,9 @@ export function adminUiPage(nonce: string, turnstileSiteKey?: string): string {
 
       function labelForField(field) {
         const labels = {
-          id: "ID campaign",
-          campaignId: "ID campaign",
-          mediaId: "ID post",
+          id: "Campaign ID",
+          campaignId: "Campaign ID",
+          mediaId: "Post ID",
           name: "Campaign name",
           keyword: "Trigger word or phrase",
           openingText: "Opening DM",

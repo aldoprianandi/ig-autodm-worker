@@ -178,7 +178,16 @@ Returns the protected browser dashboard bootstrap payload after auth:
 ```json
 {
   "dashboard": {
-    "counts": {},
+    "counts": {
+      "campaigns": 1,
+      "enabledCampaigns": 1,
+      "contactStates": 4,
+      "webhookEvents": 5,
+      "deliveries": 4,
+      "failedDeliveries": 1,
+      "retryingDeliveries": 0,
+      "sendStatusUnknownDeliveries": 1
+    },
     "token": null,
     "limits": {}
   },
@@ -273,6 +282,8 @@ Behavior:
 ### `GET /admin/dashboard`
 
 Returns operational counts, token status metadata, and runtime limit settings. It never returns token values.
+
+`sendStatusUnknownDeliveries` is the subset of `failedDeliveries` whose last send was still `processing` after the stale cutoff. Meta may already have accepted those sends, so operators must reconcile them manually rather than retrying them automatically. Existing count fields retain their previous meaning.
 
 ### `GET /admin/audit-logs?limit=50`
 

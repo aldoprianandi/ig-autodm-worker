@@ -31,7 +31,11 @@ describe("admin routes", () => {
     await expect(root.text()).resolves.toContain("IG AutoDM Worker");
 
     expect(privacy.status).toBe(200);
-    await expect(privacy.text()).resolves.toContain("Privacy Policy");
+    const privacyHtml = await privacy.text();
+    expect(privacyHtml).toContain("Privacy Policy");
+    expect(privacyHtml).toContain("30 days for webhook events");
+    expect(privacyHtml).toContain("90 days for delivery records");
+    expect(privacyHtml).toContain("180 days for contact state records");
 
     expect(terms.status).toBe(200);
     await expect(terms.text()).resolves.toContain("Terms of Service");
@@ -68,6 +72,11 @@ describe("admin routes", () => {
     expect(html).toContain("Delete campaign");
     expect(html).toContain("/admin/campaigns/");
     expect(html).toContain("Follower preview");
+    expect(html).toContain("Post ID");
+    expect(html).toContain("Campaign ID");
+    expect(html).toContain("Needs review");
+    expect(html).toContain('id="unknownStatusCount"');
+    expect(html).toContain("sendStatusUnknownDeliveries");
     expect(html).toContain("additional DM steps");
     expect(html).toContain("Require a follow before the final prompt");
     expect(html).toContain("Not-following message");
@@ -87,6 +96,8 @@ describe("admin routes", () => {
     expect(html).not.toContain("secret values embedded");
     expect(html).not.toContain("Password dashboard yang kamu set sendiri");
     expect(html).not.toContain("Security key admin");
+    expect(html).not.toContain("ID post");
+    expect(html).not.toContain("ID campaign");
     expect(html).not.toContain("challenges.cloudflare.com/turnstile");
     expect(html).not.toContain("sessionStorage");
     expect(html).not.toContain("test-admin-token-with-enough-entropy");
@@ -110,6 +121,7 @@ describe("admin routes", () => {
     const html = await response.text();
     expect(html).toContain("https://challenges.cloudflare.com/turnstile/v0/api.js");
     expect(html).toContain('data-sitekey="test-site-key"');
+    expect(html).toContain('data-action="admin-login"');
     expect(html).not.toContain("test-secret-key");
   });
 
@@ -179,6 +191,62 @@ describe("admin routes", () => {
     await expect(campaigns.json()).resolves.toEqual({ campaigns: [] });
   });
 
+  it("rejects oversized chunked admin login JSON without content-length", async () => {
+    const chunk = new TextEncoder().encode("x".repeat(32 * 1024));
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let index = 0; index < 3; index += 1) {
+          controller.enqueue(chunk);
+        }
+        controller.close();
+      }
+    });
+
+    const response = await app.request(
+      "/admin/session",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "User-Agent": "vitest" },
+        body,
+        duplex: "half"
+      } as RequestInit,
+      { ...(env as Record<string, unknown>), DB: createSessionDb() } as never
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({ error: "Request body too large" });
+  });
+
+  it("accepts normal chunked admin login JSON without content-length", async () => {
+    const bytes = new TextEncoder().encode(
+      JSON.stringify({
+        username: "admin",
+        password: "test-admin-login-password",
+        adminToken: "test-admin-token-with-enough-entropy"
+      })
+    );
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes);
+        controller.close();
+      }
+    });
+
+    const response = await app.request(
+      "/admin/session",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "User-Agent": "vitest" },
+        body,
+        duplex: "half"
+      } as RequestInit,
+      { ...(env as Record<string, unknown>), DB: createSessionDb() } as never
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ ok: true, csrfToken: expect.any(String) });
+  });
+
   it("requires Turnstile verification when Turnstile is configured for browser login", async () => {
     const db = createSessionDb();
     const turnstileEnv = {
@@ -209,7 +277,7 @@ describe("admin routes", () => {
   it("accepts browser login when Turnstile verification succeeds", async () => {
     const db = createSessionDb();
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ success: true }), {
+      new Response(JSON.stringify({ success: true, action: "admin-login", hostname: "localhost" }), {
         status: 200,
         headers: { "Content-Type": "application/json" }
       })
@@ -242,6 +310,46 @@ describe("admin routes", () => {
       expect.objectContaining({ method: "POST" })
     );
     expect(db.sessions.size).toBe(1);
+  });
+
+  it.each([
+    ["action", { success: true, action: "other-action", hostname: "localhost" }],
+    ["hostname", { success: true, action: "admin-login", hostname: "attacker.example" }]
+  ])("rejects browser login when Turnstile %s does not match", async (_field, siteverifyResult) => {
+    const db = createSessionDb();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(siteverifyResult), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+    );
+
+    const login = await app.request(
+      "/admin/session",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "User-Agent": "vitest" },
+        body: JSON.stringify({
+          username: "admin",
+          password: "test-admin-login-password",
+          adminToken: "test-admin-token-with-enough-entropy",
+          turnstileToken: "turnstile-response"
+        })
+      },
+      {
+        ...(env as Record<string, unknown>),
+        TURNSTILE_SITE_KEY: "test-site-key",
+        TURNSTILE_SECRET_KEY: "test-secret-key",
+        DB: db
+      } as never
+    );
+
+    expect(login.status).toBe(401);
+    await expect(login.json()).resolves.toEqual({ error: "Unauthorized" });
+    expect(db.sessions.size).toBe(0);
   });
 
   it("rejects session-cookie admin requests without the CSRF header", async () => {
@@ -956,7 +1064,8 @@ describe("admin routes", () => {
         webhookEvents: 10,
         deliveries: 7,
         failedDeliveries: 1,
-        retryingDeliveries: 0
+        retryingDeliveries: 0,
+        sendStatusUnknownDeliveries: 1
       },
       token: {
         configured: true,
@@ -1487,7 +1596,8 @@ function createDashboardDb() {
               webhook_events: 10,
               deliveries: 7,
               failed_deliveries: 1,
-              retrying_deliveries: 0
+              retrying_deliveries: 0,
+              send_status_unknown_deliveries: 1
             };
           }
           if (sql.includes("SELECT encrypted_token")) {

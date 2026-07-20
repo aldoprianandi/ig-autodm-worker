@@ -135,6 +135,7 @@ export type OperationalDashboard = {
     deliveries: number;
     failedDeliveries: number;
     retryingDeliveries: number;
+    sendStatusUnknownDeliveries: number;
   };
   token: InstagramTokenState | null;
 };
@@ -1287,7 +1288,8 @@ export class Repository {
           (SELECT COUNT(*) FROM webhook_events) AS webhook_events,
           (SELECT COUNT(*) FROM deliveries) AS deliveries,
           (SELECT COUNT(*) FROM deliveries WHERE status = 'failed') AS failed_deliveries,
-          (SELECT COUNT(*) FROM deliveries WHERE status = 'retrying') AS retrying_deliveries
+          (SELECT COUNT(*) FROM deliveries WHERE status = 'retrying') AS retrying_deliveries,
+          (SELECT COUNT(*) FROM deliveries WHERE status = 'failed' AND error_code = 'send_status_unknown') AS send_status_unknown_deliveries
         FROM campaigns`
       )
       .first<Record<string, unknown>>();
@@ -1300,7 +1302,8 @@ export class Repository {
         webhookEvents: Number(row?.webhook_events ?? 0),
         deliveries: Number(row?.deliveries ?? 0),
         failedDeliveries: Number(row?.failed_deliveries ?? 0),
-        retryingDeliveries: Number(row?.retrying_deliveries ?? 0)
+        retryingDeliveries: Number(row?.retrying_deliveries ?? 0),
+        sendStatusUnknownDeliveries: Number(row?.send_status_unknown_deliveries ?? 0)
       },
       token: await this.getInstagramTokenState()
     };

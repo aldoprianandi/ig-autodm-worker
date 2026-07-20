@@ -4,6 +4,7 @@ import { ADMIN_REQUESTS_PER_MINUTE, metaSendsPerMinute } from "../config";
 import { Repository } from "../db/repository";
 import { MAX_DM_STEPS } from "../flows/steps";
 import { normalizeMessageVariants } from "../flows/variants";
+import { readLimitedBody } from "../http/body";
 import { POLL_LIMIT_PER_MEDIA } from "../poller/comments";
 import { timingSafeEqual } from "../security/constant-time";
 import { redactSensitiveText } from "../security/redaction";
@@ -282,28 +283,14 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-function contentLengthTooLarge(c: Context<any>, maxBytes: number): boolean {
-  const raw = c.req.header("Content-Length");
-  if (!raw) return false;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > maxBytes;
-}
-
-function utf8ByteLength(value: string): number {
-  return new TextEncoder().encode(value).byteLength;
-}
-
 async function parseJson(
   c: Context<any>
 ): Promise<{ ok: true; value: unknown } | { ok: false; status: 400 | 413; error: string }> {
-  if (contentLengthTooLarge(c, MAX_ADMIN_JSON_BYTES)) {
+  const body = await readLimitedBody(c.req.raw, MAX_ADMIN_JSON_BYTES);
+  if (!body.ok) {
     return { ok: false, status: 413, error: "Request body too large" };
   }
-
-  const bodyText = await c.req.text();
-  if (utf8ByteLength(bodyText) > MAX_ADMIN_JSON_BYTES) {
-    return { ok: false, status: 413, error: "Request body too large" };
-  }
+  const bodyText = new TextDecoder().decode(body.bytes);
   if (!bodyText.trim()) return { ok: false, status: 400, error: "Invalid JSON body" };
 
   try {
@@ -316,14 +303,11 @@ async function parseJson(
 async function parseOptionalJson(
   c: Context<any>
 ): Promise<{ ok: true; value: unknown } | { ok: false; status: 400 | 413; error: string }> {
-  if (contentLengthTooLarge(c, MAX_ADMIN_JSON_BYTES)) {
+  const body = await readLimitedBody(c.req.raw, MAX_ADMIN_JSON_BYTES);
+  if (!body.ok) {
     return { ok: false, status: 413, error: "Request body too large" };
   }
-
-  const bodyText = await c.req.text();
-  if (utf8ByteLength(bodyText) > MAX_ADMIN_JSON_BYTES) {
-    return { ok: false, status: 413, error: "Request body too large" };
-  }
+  const bodyText = new TextDecoder().decode(body.bytes);
   if (!bodyText.trim()) return { ok: true, value: {} };
 
   try {
@@ -503,8 +487,18 @@ async function verifyTurnstile(c: AdminContext, token: string | undefined): Prom
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: formData.toString()
   });
-  const body = await response.json().catch(() => ({})) as { success?: boolean };
-  return response.ok && body.success === true;
+  const body = await response.json().catch(() => ({})) as {
+    success?: boolean;
+    action?: string;
+    hostname?: string;
+  };
+  const requestHostname = new URL(c.req.url).hostname;
+  return (
+    response.ok &&
+    body.success === true &&
+    body.action === "admin-login" &&
+    body.hostname === requestHostname
+  );
 }
 
 adminRoutes.post("/session", async (c) => {
