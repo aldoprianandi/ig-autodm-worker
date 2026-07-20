@@ -18,6 +18,14 @@ describe("Repository delivery retry guards", () => {
     expect(db.delivery.status).toBe("retrying");
   });
 
+  it("does not claim or mutate an already sent delivery", async () => {
+    const db = createClaimDb({ status: "sent", attemptCount: 1 });
+    const repo = new Repository(db as never);
+
+    await expect(repo.claimDeliveryForSend("delivery-1")).resolves.toBe("skip");
+    expect(db.delivery).toEqual({ status: "sent", attemptCount: 1 });
+  });
+
   it("recovers stale opening comment ids from webhook events when contact state is missing", async () => {
     const db = createRecoverableOpeningDb();
     const repo = new Repository(db as never);

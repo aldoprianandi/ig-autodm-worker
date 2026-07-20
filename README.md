@@ -13,9 +13,9 @@ This project is a single-account template for creators and small operators who w
 
 ## What It Does
 
-- Watches configured Instagram media IDs for configured comment keywords, with typo-tolerant fuzzy matching (Damerau-Levenshtein, word-order and stop-word aware).
+- Watches configured Instagram media IDs for configured comment keywords, with typo-tolerant fuzzy matching (Damerau-Levenshtein; multi-word keywords require every token in any order).
 - Records Meta webhooks in Cloudflare D1 with idempotency, plus a cron poller that catches missed webhooks.
-- Queues an opening private reply with a postback button; the flow engine also supports chained DM button steps and auto-advancing to the final delivery (multi-step saves stay locked off in this template for App Review-grade behavior).
+- Queues an opening private reply with a postback button; the flow engine also supports chained DM button steps where each step and the final delivery require user interaction (multi-step saves stay locked off in this template for App Review-grade behavior).
 - Rotates message variants deterministically per user (opening, public reply, and each DM step), backed by a reusable searchable template library.
 - Sends an optional public comment reply after the opening delivery is marked sent, and an optional public rescue reply when the DM cannot be delivered.
 - Supports an optional follow gate: the final prompt waits until the user follows the account, with a retry button and `READY` text fallback.

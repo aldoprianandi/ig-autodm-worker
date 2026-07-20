@@ -1,6 +1,6 @@
 import { Repository, type Campaign } from "../db/repository";
 import { isAutomationEnabled, metaSendsPerMinute } from "../config";
-import { sentStepState, stepButtonPayload, stepDeliveryType } from "../flows/steps";
+import { sentStepState, stepButtonPayload } from "../flows/steps";
 import { selectMessageVariant } from "../flows/variants";
 import { MetaApiClient, type MetaSendResult } from "../meta/api";
 import { redactSensitiveText } from "../security/redaction";
@@ -41,11 +41,14 @@ export async function processDeliveryBatch(
 
   if (!isAutomationEnabled(env)) {
     for (const message of batch.messages) {
-      await repo.markDeliveryFailed(
-        message.body.deliveryId,
-        "automation_disabled",
-        "Automation is disabled by AUTOMATION_ENABLED"
-      );
+      const claim = await claimDelivery(repo, message.body.deliveryId);
+      if (!claim) {
+        await repo.markDeliveryFailed(
+          message.body.deliveryId,
+          "automation_disabled",
+          "Automation is disabled by AUTOMATION_ENABLED"
+        );
+      }
       message.ack();
     }
 
@@ -76,13 +79,27 @@ export async function processDeliveryJob(
   queue?: DeliveryQueue
 ): Promise<DeliveryDisposition> {
   if (!automationEnabled) {
+    const claim = await claimDelivery(repo, job.deliveryId);
+    if (claim) return claim;
     await repo.markDeliveryFailed(job.deliveryId, "automation_disabled", "Automation is disabled by AUTOMATION_ENABLED");
     return "ack";
   }
 
   const campaign = await repo.findCampaignById(job.campaignId);
 
-  if (!campaign?.enabled) return "ack";
+  if (!campaign) {
+    const claim = await claimDelivery(repo, job.deliveryId);
+    if (claim) return claim;
+    await repo.markDeliveryFailed(job.deliveryId, "campaign_missing", "Campaign no longer exists");
+    return "ack";
+  }
+
+  if (!campaign.enabled) {
+    const claim = await claimDelivery(repo, job.deliveryId);
+    if (claim) return claim;
+    await repo.markDeliveryFailed(job.deliveryId, "campaign_disabled", "Campaign is disabled");
+    return "ack";
+  }
 
   if (job.deliveryType === "opening") {
     if (!job.commentId) {
@@ -153,7 +170,7 @@ export async function processDeliveryJob(
       meta.sendButtonMessage(job.igUserId, stepText, step.buttonTitle, stepButtonPayload(campaign, stepIndex))
     );
     if (isDeliveryDisposition(result)) return result;
-    return handleButtonStepSendResult(repo, job, result, campaign, stepIndex, queue);
+    return handleButtonStepSendResult(repo, job, result, stepIndex);
   }
 
   if (job.deliveryType !== "final") {
@@ -369,10 +386,6 @@ async function handleOpeningSendResult(
     }
   }
 
-  if (queue && campaign.dmSteps.length) {
-    await queueButtonStep(repo, queue, job.campaignId, job.igUserId, 0);
-  }
-
   return "ack";
 }
 
@@ -380,9 +393,7 @@ async function handleButtonStepSendResult(
   repo: DeliveryRepository,
   job: DeliveryJob,
   result: MetaSendResult,
-  campaign: Campaign,
-  stepIndex: number,
-  queue?: DeliveryQueue
+  stepIndex: number
 ): Promise<DeliveryDisposition> {
   if (!result.ok) return handleSendResult(repo, job, result, sentStepState(stepIndex));
 
@@ -393,44 +404,7 @@ async function handleButtonStepSendResult(
     state: sentStepState(stepIndex)
   });
 
-  if (!queue) return "ack";
-
-  const nextStepIndex = stepIndex + 1;
-  if (campaign.dmSteps[nextStepIndex]) {
-    await queueButtonStep(repo, queue, job.campaignId, job.igUserId, nextStepIndex);
-  } else {
-    await queueFinal(repo, queue, job.campaignId, job.igUserId);
-  }
-
   return "ack";
-}
-
-async function queueButtonStep(
-  repo: DeliveryRepository,
-  queue: DeliveryQueue,
-  campaignId: string,
-  igUserId: string,
-  stepIndex: number
-): Promise<void> {
-  const deliveryType = stepDeliveryType(stepIndex);
-  const deliveryId = `${campaignId}:${igUserId}:${deliveryType}`;
-  const created = await repo.createDelivery({
-    id: deliveryId,
-    campaignId,
-    igUserId,
-    deliveryType,
-    status: "queued"
-  });
-
-  if (!created) return;
-
-  await queue.send({
-    deliveryId,
-    campaignId,
-    igUserId,
-    deliveryType: "button_step",
-    stepIndex
-  });
 }
 
 function publicReplyTextForJob(campaign: Campaign, job: DeliveryJob): string | null {
@@ -490,29 +464,4 @@ function isRecipientUnavailableError(result: Extract<MetaSendResult, { ok: false
     normalized.includes("invalid for a private reply") ||
     (normalized.includes("private reply") && normalized.includes("comment id"))
   );
-}
-
-async function queueFinal(
-  repo: DeliveryRepository,
-  queue: DeliveryQueue,
-  campaignId: string,
-  igUserId: string
-): Promise<void> {
-  const deliveryId = `${campaignId}:${igUserId}:final`;
-  const created = await repo.createDelivery({
-    id: deliveryId,
-    campaignId,
-    igUserId,
-    deliveryType: "final",
-    status: "queued"
-  });
-
-  if (!created) return;
-
-  await queue.send({
-    deliveryId,
-    campaignId,
-    igUserId,
-    deliveryType: "final"
-  });
 }
