@@ -77,7 +77,7 @@ const legalPage = (title: string, body: string, nonce: string) => `<!doctype htm
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>${title} - IG AutoDM Worker</title>
+    <title>${title} - Ki’Savan AutoDM</title>
     <style nonce="${nonce}">
       body { color: #111827; font-family: system-ui, sans-serif; line-height: 1.6; margin: 0; }
       main { margin: 0 auto; max-width: 760px; padding: 48px 20px; }
@@ -92,7 +92,7 @@ const legalPage = (title: string, body: string, nonce: string) => `<!doctype htm
 </html>`;
 
 const privacyBody = `<h1>Privacy Policy</h1>
-      <p>IG AutoDM Worker is a self-hosted Instagram automation tool used by the account owner to respond to Instagram comments and direct messages.</p>
+      <p>Ki’Savan AutoDM is a self-hosted Instagram automation tool used by the account owner to respond to Instagram comments and direct messages.</p>
       <h2>Data processed</h2>
       <p>The tool processes Instagram account identifiers, usernames when provided by Instagram, comment text, message text, postback payloads, campaign rules, and delivery state needed to operate automated replies.</p>
       <h2>Purpose</h2>
@@ -103,20 +103,20 @@ const privacyBody = `<h1>Privacy Policy</h1>
       <p>For access or deletion requests, contact the owner of the Instagram account that connected this tool.</p>`;
 
 const termsBody = `<h1>Terms of Service</h1>
-      <p>IG AutoDM Worker is operated as a self-hosted automation tool for the Instagram account owner who connects it.</p>
+      <p>Ki’Savan AutoDM is operated as a self-hosted automation tool for the Instagram account owner who connects it.</p>
       <h2>Use of the tool</h2>
       <p>The account owner is responsible for configuring campaigns, reply content, and compliance with Instagram and Meta platform policies.</p>
       <h2>Availability</h2>
       <p>The tool is provided for internal automation use without warranties. Access can be revoked by removing the connected app from Instagram settings or rotating stored access tokens.</p>`;
 
 const deletionBody = `<h1>Data Deletion Instructions</h1>
-      <p>To remove IG AutoDM Worker access, open Instagram settings, go to Website permissions, then Apps and websites, and remove IG AutoDM Worker app.</p>
+      <p>To remove Ki’Savan AutoDM access, open Instagram settings, go to Website permissions, then Apps and websites, and remove Ki’Savan AutoDM app.</p>
       <p>To request deletion of stored automation data, contact the owner of the Instagram account that connected this tool. The owner can remove campaign delivery records from the Cloudflare D1 database and rotate the Instagram access token.</p>`;
 
 app.get("/", () =>
   htmlResponse(
-    "IG AutoDM Worker",
-    `<h1>IG AutoDM Worker</h1>
+    "Ki’Savan AutoDM",
+    `<h1>Ki’Savan AutoDM</h1>
       <p>Self-hosted Instagram automation service for comment and direct-message workflows.</p>
       <p><a href="/privacy">Privacy Policy</a> | <a href="/terms">Terms of Service</a> | <a href="/data-deletion">Data Deletion Instructions</a></p>`
   )

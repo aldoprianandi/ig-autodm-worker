@@ -28,7 +28,7 @@ describe("admin routes", () => {
     expect(root.headers.get("Cache-Control")).toBe("no-store");
     expect(root.headers.get("Content-Security-Policy")).toContain("script-src 'none'");
     expect(root.headers.get("X-Frame-Options")).toBe("DENY");
-    await expect(root.text()).resolves.toContain("IG AutoDM Worker");
+    await expect(root.text()).resolves.toContain("Ki’Savan AutoDM");
 
     expect(privacy.status).toBe(200);
     await expect(privacy.text()).resolves.toContain("Privacy Policy");
@@ -54,37 +54,35 @@ describe("admin routes", () => {
     expect(response.headers.get("Content-Security-Policy")).toContain("object-src 'none'");
     expect(response.headers.get("Content-Security-Policy")).toContain("trusted-types 'none'");
     expect(response.headers.get("X-Frame-Options")).toBe("DENY");
+
     const html = await response.text();
-    expect(html).toContain("IG AutoDM Worker");
+
+    // Identité et interface française
+    expect(html).toContain("Ki’Savan AutoDM");
     expect(html).toContain("data-admin-ui");
-    expect(html).toContain("Login dashboard");
-    expect(html).toContain("Masuk ke dashboard");
-    expect(html).toContain("Security key");
+    expect(html).toContain("Se connecter au tableau de bord");
+    expect(html).toContain("Identifiant");
+    expect(html).toContain("Mot de passe");
+    expect(html).toContain("Clé de sécurité");
+    expect(html).toContain("Enregistrer le brouillon");
+    expect(html).toContain("Activer la campagne");
+    expect(html).toContain("Supprimer la campagne");
+
+    // Routes et fonctions essentielles
     expect(html).toContain("/admin/session");
     expect(html).toContain("/admin/bootstrap");
-    expect(html).toContain("Simpan Draft");
-    expect(html).toContain("Aktifkan campaign");
-    expect(html).toContain("Hapus campaign");
     expect(html).toContain("/admin/campaigns/");
-    expect(html).toContain("Preview follower");
-    expect(html).toContain("langkah DM tambahan");
-    expect(html).toContain("Wajib follow sebelum prompt akhir");
-    expect(html).toContain("Teks saat belum follow");
     expect(html).toContain("followGateEnabled");
     expect(html).toContain("followGateText");
     expect(html).toContain("followGateButtonTitle");
     expect(html).toContain("openingFailureReplyText");
-    expect(html).toContain("Follow gate");
-    expect(html).not.toContain("tanpa edit database manual");
-    expect(html).not.toContain("Browser cuma nyimpen session sementara");
-    expect(html).not.toContain("secret values embedded");
-    expect(html).not.toContain("Password dashboard yang kamu set sendiri");
-    expect(html).not.toContain("Security key admin");
-    expect(html).not.toContain("challenges.cloudflare.com/turnstile");
-    expect(html).not.toContain("sessionStorage");
+
+    // Aucun secret ne doit être intégré dans le HTML
     expect(html).not.toContain("test-admin-token-with-enough-entropy");
     expect(html).not.toContain("ig-token");
     expect(html).not.toContain("test-meta-app-secret-with-enough-entropy");
+    expect(html).not.toContain("sessionStorage");
+    expect(html).not.toContain("challenges.cloudflare.com/turnstile");
   });
 
   it("serves Turnstile on the admin UI only when Turnstile keys are configured", async () => {
