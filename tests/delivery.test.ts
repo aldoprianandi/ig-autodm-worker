@@ -170,6 +170,20 @@ describe("processDeliveryJob", () => {
       }
     ]);
     expect(repo.sent).toEqual([]);
+    expect(repo.claims).toEqual(["campaign-1:user-1:final"]);
+  });
+
+  it("preserves a sent delivery when automation is globally disabled", async () => {
+    const repo = new FakeDeliveryRepository();
+    repo.claimAllowed = false;
+    const meta = new FakeMetaClient();
+
+    const disposition = await processDeliveryJob(repo as never, meta as never, finalJob, false);
+
+    expect(disposition).toBe("ack");
+    expect(repo.claims).toEqual(["campaign-1:user-1:final"]);
+    expect(repo.failed).toEqual([]);
+    expect(meta.sentTexts).toEqual([]);
   });
 
   it("acks without sending when the campaign is disabled", async () => {
@@ -182,7 +196,51 @@ describe("processDeliveryJob", () => {
     expect(disposition).toBe("ack");
     expect(meta.sentTexts).toEqual([]);
     expect(repo.sent).toEqual([]);
-    expect(repo.claims).toEqual([]);
+    expect(repo.claims).toEqual(["campaign-1:user-1:final"]);
+    expect(repo.failed).toEqual([
+      {
+        deliveryId: "campaign-1:user-1:final",
+        code: "campaign_disabled",
+        message: "Campaign is disabled"
+      }
+    ]);
+  });
+
+  it("marks delivery failed without sending when the campaign is missing", async () => {
+    const repo = new FakeDeliveryRepository();
+    repo.campaign = null;
+    const meta = new FakeMetaClient();
+
+    const disposition = await processDeliveryJob(repo as never, meta as never, finalJob);
+
+    expect(disposition).toBe("ack");
+    expect(meta.sentTexts).toEqual([]);
+    expect(repo.sent).toEqual([]);
+    expect(repo.claims).toEqual(["campaign-1:user-1:final"]);
+    expect(repo.failed).toEqual([
+      {
+        deliveryId: "campaign-1:user-1:final",
+        code: "campaign_missing",
+        message: "Campaign no longer exists"
+      }
+    ]);
+  });
+
+  it.each([
+    ["disabled", { ...baseCampaign, enabled: false }],
+    ["missing", null]
+  ])("preserves a sent delivery when its campaign is %s", async (_scenario, campaignState) => {
+    const repo = new FakeDeliveryRepository();
+    repo.campaign = campaignState;
+    repo.claimAllowed = false;
+    const meta = new FakeMetaClient();
+
+    const disposition = await processDeliveryJob(repo as never, meta as never, finalJob);
+
+    expect(disposition).toBe("ack");
+    expect(repo.claims).toEqual(["campaign-1:user-1:final"]);
+    expect(repo.failed).toEqual([]);
+    expect(meta.sentTexts).toEqual([]);
   });
 
   it("sends final delivery and marks user delivered when follow gate passes", async () => {
@@ -683,6 +741,30 @@ describe("processDeliveryJob", () => {
     expect(repo.states).toEqual([{ campaignId: "campaign-1", igUserId: "user-1", state: "commented" }]);
   });
 
+  it("waits for user interaction before queueing the first configured DM step", async () => {
+    const repo = new FakeDeliveryRepository();
+    repo.campaign = {
+      ...baseCampaign,
+      dmSteps: [{ text: "Choose a style first.", textVariants: ["Choose a style first."], buttonTitle: "NEXT" }]
+    };
+    const meta = new FakeMetaClient();
+    const queue = new FakeQueue();
+    const job: DeliveryJob = {
+      deliveryId: "campaign-1:user-1:opening",
+      campaignId: "campaign-1",
+      igUserId: "user-1",
+      deliveryType: "opening",
+      commentId: "comment-1"
+    };
+
+    const disposition = await processDeliveryJob(repo as never, meta as never, job, true, 30, queue as never);
+
+    expect(disposition).toBe("ack");
+    expect(repo.createdDeliveries).toEqual([]);
+    expect(queue.sent).toEqual([]);
+    expect(repo.states).toEqual([{ campaignId: "campaign-1", igUserId: "user-1", state: "commented" }]);
+  });
+
   it("does not requeue a public comment reply that was already sent", async () => {
     const repo = new FakeDeliveryRepository();
     repo.campaign = { ...baseCampaign, buttonTitle: "TEMBOK", commentReplyText: "Cek DM kamu ya" };
@@ -1117,6 +1199,7 @@ describe("processDeliveryJob", () => {
       ]
     };
     const meta = new FakeMetaClient();
+    const queue = new FakeQueue();
     const job: DeliveryJob = {
       deliveryId: "campaign-1:user-1:button_step:1",
       campaignId: "campaign-1",
@@ -1125,7 +1208,7 @@ describe("processDeliveryJob", () => {
       stepIndex: 0
     };
 
-    const disposition = await processDeliveryJob(repo as never, meta as never, job);
+    const disposition = await processDeliveryJob(repo as never, meta as never, job, true, 30, queue as never);
 
     expect(disposition).toBe("ack");
     expect(meta.buttonMessages).toEqual([
@@ -1140,6 +1223,8 @@ describe("processDeliveryJob", () => {
     expect(repo.states).toEqual([
       { campaignId: "campaign-1", igUserId: "user-1", state: "button_step:1" }
     ]);
+    expect(repo.createdDeliveries).toEqual([]);
+    expect(queue.sent).toEqual([]);
   });
 
   it("selects intermediate DM step variants deterministically per user and step", async () => {

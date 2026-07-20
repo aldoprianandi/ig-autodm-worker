@@ -1,21 +1,4 @@
 const MAX_FUZZY_PHRASE_TOKENS = 6;
-const MIN_STANDALONE_PHRASE_TOKEN_LENGTH = 4;
-const COMMON_PHRASE_WORDS = new Set([
-  "aku",
-  "anda",
-  "bang",
-  "buat",
-  "dan",
-  "dong",
-  "for",
-  "ini",
-  "kak",
-  "mau",
-  "nya",
-  "the",
-  "untuk",
-  "yang"
-]);
 
 export function commentMatchesKeyword(commentText: string, keyword: string): boolean {
   const keywordTokens = tokenize(keyword);
@@ -24,16 +7,24 @@ export function commentMatchesKeyword(commentText: string, keyword: string): boo
   const commentTokens = tokenize(commentText);
   if (!commentTokens.length) return false;
 
-  const normalizedComment = commentTokens.join(" ");
-  const normalizedKeyword = keywordTokens.join(" ");
-  if (normalizedComment.includes(normalizedKeyword)) return true;
+  if (containsExactTokenSequence(commentTokens, keywordTokens)) return true;
 
   if (keywordTokens.length === 1) {
-    return commentTokens.some((token) => tokensMatch(token, keywordTokens[0], false));
+    return commentTokens.some((token) => tokensMatch(token, keywordTokens[0]));
   }
 
   if (keywordTokens.length > MAX_FUZZY_PHRASE_TOKENS) return false;
-  return phraseTokensMatch(keywordTokens, commentTokens) || phraseHasStandaloneToken(keywordTokens, commentTokens);
+  return phraseTokensMatch(keywordTokens, commentTokens);
+}
+
+function containsExactTokenSequence(commentTokens: string[], keywordTokens: string[]): boolean {
+  if (keywordTokens.length > commentTokens.length) return false;
+
+  for (let start = 0; start <= commentTokens.length - keywordTokens.length; start += 1) {
+    if (keywordTokens.every((token, offset) => commentTokens[start + offset] === token)) return true;
+  }
+
+  return false;
 }
 
 function tokenize(value: string): string[] {
@@ -59,7 +50,7 @@ function phraseTokensMatch(keywordTokens: string[], commentTokens: string[]): bo
 
     for (let index = 0; index < commentTokens.length; index += 1) {
       if (used.has(index)) continue;
-      if (!tokensMatch(commentTokens[index], keywordToken, true)) continue;
+      if (!tokensMatch(commentTokens[index], keywordToken)) continue;
       used.add(index);
       if (matchAt(keywordIndex + 1)) return true;
       used.delete(index);
@@ -71,21 +62,16 @@ function phraseTokensMatch(keywordTokens: string[], commentTokens: string[]): bo
   return matchAt(0);
 }
 
-function phraseHasStandaloneToken(keywordTokens: string[], commentTokens: string[]): boolean {
-  return keywordTokens
-    .filter((token) => token.length >= MIN_STANDALONE_PHRASE_TOKEN_LENGTH && !COMMON_PHRASE_WORDS.has(token))
-    .some((keywordToken) => commentTokens.some((commentToken) => tokensMatch(commentToken, keywordToken, true)));
-}
-
-function tokensMatch(commentToken: string, keywordToken: string, phraseMode: boolean): boolean {
+function tokensMatch(commentToken: string, keywordToken: string): boolean {
   if (commentToken === keywordToken) return true;
-  const distance = allowedDistance(keywordToken, phraseMode);
+  const distance = allowedDistance(keywordToken);
   if (distance === 0) return false;
+  if (commentToken.length > keywordToken.length + 1) return false;
   if (Math.abs(commentToken.length - keywordToken.length) > distance) return false;
   return damerauLevenshtein(commentToken, keywordToken, distance) <= distance;
 }
 
-function allowedDistance(keywordToken: string, phraseMode: boolean): number {
+function allowedDistance(keywordToken: string): number {
   const length = keywordToken.length;
   if (length <= 2) return 0;
   if (length <= 4) return 1;

@@ -234,6 +234,61 @@ describe("D1 integration", () => {
     }
   });
 
+  it("fails pending deliveries but preserves sent evidence when the kill switch is active", async () => {
+    const db = await createMigratedD1();
+    try {
+      const repo = new Repository(db.d1);
+      await repo.upsertCampaign(campaign);
+      await repo.createDelivery({
+        id: "prompt-test:user-queued:final",
+        campaignId: "prompt-test",
+        igUserId: "user-queued",
+        deliveryType: "final",
+        status: "queued"
+      });
+      await repo.createDelivery({
+        id: "prompt-test:user-sent:final",
+        campaignId: "prompt-test",
+        igUserId: "user-sent",
+        deliveryType: "final",
+        status: "sent"
+      });
+      const queuedMessage = recordingMessage({
+        deliveryId: "prompt-test:user-queued:final",
+        campaignId: "prompt-test",
+        igUserId: "user-queued",
+        deliveryType: "final"
+      });
+      const sentDuplicate = recordingMessage({
+        deliveryId: "prompt-test:user-sent:final",
+        campaignId: "prompt-test",
+        igUserId: "user-sent",
+        deliveryType: "final"
+      });
+
+      await processDeliveryBatch(
+        { messages: [queuedMessage, sentDuplicate] } as unknown as MessageBatch<DeliveryJob>,
+        {
+          ...baseEnv(),
+          AUTOMATION_ENABLED: "false",
+          DB: db.d1,
+          DELIVERY_QUEUE: new RecordingQueue()
+        } as never
+      );
+
+      expect(queuedMessage.ack).toHaveBeenCalledOnce();
+      expect(sentDuplicate.ack).toHaveBeenCalledOnce();
+      await expect(
+        db.get("SELECT status, error_code FROM deliveries WHERE id = 'prompt-test:user-queued:final'")
+      ).resolves.toMatchObject({ status: "failed", error_code: "automation_disabled" });
+      await expect(
+        db.get("SELECT status, error_code FROM deliveries WHERE id = 'prompt-test:user-sent:final'")
+      ).resolves.toMatchObject({ status: "sent", error_code: null });
+    } finally {
+      await db.close();
+    }
+  });
+
   it("retries a queued delivery batch when Meta returns a transient send failure", async () => {
     const db = await createMigratedD1();
     try {
@@ -301,6 +356,14 @@ describe("D1 integration", () => {
         status: "failed",
         error_code: "send_status_unknown",
         error_message: "Delivery was still processing after stale cutoff; manual reconciliation required"
+      });
+      await expect(repo.getOperationalDashboard()).resolves.toMatchObject({
+        counts: {
+          deliveries: 1,
+          failedDeliveries: 1,
+          retryingDeliveries: 0,
+          sendStatusUnknownDeliveries: 1
+        }
       });
     } finally {
       await db.close();

@@ -273,6 +273,27 @@ Requirements:
 
 If refresh succeeds, future Meta calls use the encrypted D1 token before the bootstrap env token. If refresh fails, the last sanitized error is visible through `/admin/dashboard`.
 
+## Reconcile Unknown Delivery Status
+
+The admin dashboard shows **Needs review** when `sendStatusUnknownDeliveries` is greater than zero. These rows were still `processing` after the stale cutoff, so Meta may have accepted the send even though the Worker did not record a response.
+
+Inspect the affected rows without exposing recipient identifiers in shared logs or screenshots:
+
+```sql
+SELECT campaign_id,
+       delivery_type,
+       COUNT(*) AS affected_deliveries,
+       MIN(updated_at) AS oldest_unknown_at,
+       MAX(updated_at) AS newest_unknown_at
+FROM deliveries
+WHERE status = 'failed'
+  AND error_code = 'send_status_unknown'
+GROUP BY campaign_id, delivery_type
+ORDER BY newest_unknown_at DESC;
+```
+
+Do not automatically requeue these deliveries. Compare the delivery time with trusted Meta-side evidence and reconcile each row through trusted operator tooling only after confirming another send cannot create a duplicate DM or public reply.
+
 ## Emergency Stop
 
 Global kill switch:

@@ -11,7 +11,6 @@ type PollRepository = Partial<Pick<Repository, "listCampaigns" | "listEnabledCam
 type PollMetaClient = Pick<MetaApiClient, "listMediaComments">;
 type PollRouter = Pick<FlowRouter, "handleEvent">;
 type OpeningFinalDeliveryRepository = Pick<Repository, "listOpeningSentWithoutFinal" | "createDelivery">;
-type LastStepFinalDeliveryRepository = Pick<Repository, "listLastStepSentWithoutFinal" | "createDelivery">;
 type CommentReplyRepository = Pick<Repository, "listOpeningSentWithoutCommentReply" | "createDelivery">;
 
 export const POLL_LIMIT_PER_MEDIA = 25;
@@ -32,9 +31,7 @@ export async function pollCampaignComments(env: Env): Promise<PollResult> {
   const openingFinalDeliveriesQueued = autoFinalAfterOpeningEnabled(env)
     ? await queueFinalDeliveriesAfterOpening(repo, env.DELIVERY_QUEUE)
     : 0;
-  const lastStepFinalDeliveriesQueued = await queueFinalDeliveriesAfterLastStep(repo, env.DELIVERY_QUEUE);
-  const finalDeliveriesQueued = openingFinalDeliveriesQueued + lastStepFinalDeliveriesQueued;
-  return { ...result, commentRepliesQueued, finalDeliveriesQueued };
+  return { ...result, commentRepliesQueued, finalDeliveriesQueued: openingFinalDeliveriesQueued };
 }
 
 export async function pollCampaignCommentsWith(
@@ -113,13 +110,6 @@ export async function queueFinalDeliveriesAfterOpening(
   queue: Queue<DeliveryJob>
 ): Promise<number> {
   return queueFinalDeliveries(await repo.listOpeningSentWithoutFinal(), repo, queue);
-}
-
-export async function queueFinalDeliveriesAfterLastStep(
-  repo: LastStepFinalDeliveryRepository,
-  queue: Queue<DeliveryJob>
-): Promise<number> {
-  return queueFinalDeliveries(await repo.listLastStepSentWithoutFinal(), repo, queue);
 }
 
 async function queueFinalDeliveries(

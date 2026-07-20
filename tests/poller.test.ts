@@ -5,7 +5,6 @@ import {
   pollCampaignComments,
   pollCampaignCommentsWith,
   queueCommentRepliesAfterOpening,
-  queueFinalDeliveriesAfterLastStep,
   queueFinalDeliveriesAfterOpening
 } from "../src/poller/comments";
 import type { DeliveryJob, NormalizedEvent } from "../src/types";
@@ -350,7 +349,9 @@ describe("comment poller", () => {
       .mockResolvedValue([{ campaignId: "blue-green", igUserId: "user-1" }]);
     vi.spyOn(Repository.prototype, "listEnabledCampaigns").mockResolvedValue([]);
     vi.spyOn(Repository.prototype, "listOpeningSentWithoutCommentReply").mockResolvedValue([]);
-    vi.spyOn(Repository.prototype, "listLastStepSentWithoutFinal").mockResolvedValue([]);
+    const listLastStepSentWithoutFinal = vi
+      .spyOn(Repository.prototype, "listLastStepSentWithoutFinal")
+      .mockResolvedValue([{ campaignId: "tembok", igUserId: "user-1" }]);
     const jobs: DeliveryJob[] = [];
 
     const result = await pollCampaignComments({
@@ -367,6 +368,7 @@ describe("comment poller", () => {
 
     expect(result.finalDeliveriesQueued).toBe(0);
     expect(listOpeningSentWithoutFinal).not.toHaveBeenCalled();
+    expect(listLastStepSentWithoutFinal).not.toHaveBeenCalled();
     expect(jobs).toEqual([]);
   });
 
@@ -431,48 +433,5 @@ describe("comment poller", () => {
 
     expect(result).toBe(0);
     expect(jobs).toEqual([]);
-  });
-
-  it("queues final deliveries after the last DM step was sent", async () => {
-    const created: unknown[] = [];
-    const jobs: DeliveryJob[] = [];
-    const repo = {
-      async listOpeningSentWithoutFinal() {
-        return [];
-      },
-      async listLastStepSentWithoutFinal() {
-        return [{ campaignId: "tembok", igUserId: "user-1" }];
-      },
-      async createDelivery(input: unknown) {
-        created.push(input);
-        return true;
-      }
-    };
-    const queue = {
-      async send(job: DeliveryJob) {
-        jobs.push(job);
-      }
-    };
-
-    const result = await queueFinalDeliveriesAfterLastStep(repo, queue as never);
-
-    expect(result).toBe(1);
-    expect(created).toEqual([
-      {
-        id: "tembok:user-1:final",
-        campaignId: "tembok",
-        igUserId: "user-1",
-        deliveryType: "final",
-        status: "queued"
-      }
-    ]);
-    expect(jobs).toEqual([
-      {
-        deliveryId: "tembok:user-1:final",
-        campaignId: "tembok",
-        igUserId: "user-1",
-        deliveryType: "final"
-      }
-    ]);
   });
 });

@@ -13,6 +13,7 @@ describe("commentMatchesKeyword", () => {
     }
 
     expect(commentMatchesKeyword("promosi dong", "PROMPT")).toBe(false);
+    expect(commentMatchesKeyword("prompted", "PROMPT")).toBe(false);
   });
 
   it("matches multi-word keywords when word order changes", () => {
@@ -26,15 +27,22 @@ describe("commentMatchesKeyword", () => {
     expect(commentMatchesKeyword("bluee greenn", "Blue Green")).toBe(true);
   });
 
-  it("matches a strong standalone word from a multi-word keyword", () => {
-    expect(commentMatchesKeyword("blue aja", "Blue Green")).toBe(true);
-    expect(commentMatchesKeyword("green aja", "Blue Green")).toBe(true);
-    expect(commentMatchesKeyword("blue blue", "Blue Green")).toBe(true);
-    expect(commentMatchesKeyword("gren dong", "Blue Green")).toBe(true);
-  });
-
-  it("does not match unrelated words or weak common words from a phrase", () => {
+  it("requires every token from a multi-word keyword", () => {
+    expect(commentMatchesKeyword("blue aja", "Blue Green")).toBe(false);
+    expect(commentMatchesKeyword("green aja", "Blue Green")).toBe(false);
+    expect(commentMatchesKeyword("blue blue", "Blue Green")).toBe(false);
+    expect(commentMatchesKeyword("gren dong", "Blue Green")).toBe(false);
     expect(commentMatchesKeyword("merah aja", "Blue Green")).toBe(false);
     expect(commentMatchesKeyword("the dong", "The Green")).toBe(false);
+    expect(commentMatchesKeyword("blue greenish", "Blue Green")).toBe(false);
+  });
+
+  it("matches exact phrases longer than the fuzzy phrase limit", () => {
+    expect(
+      commentMatchesKeyword(
+        "please send me the complete blue green prompt right now thanks",
+        "send me the complete blue green prompt right"
+      )
+    ).toBe(true);
   });
 });

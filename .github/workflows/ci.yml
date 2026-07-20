@@ -16,6 +16,8 @@ jobs:
       - name: Checkout
         # actions/checkout@v5
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         # actions/setup-node@v5
@@ -49,4 +51,18 @@ jobs:
         run: npm run scan:oss
 
       - name: Whitespace check
-        run: git diff --check
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --check "${BASE_SHA}...HEAD"
+          elif [[ -z "${BEFORE_SHA}" || "${BEFORE_SHA}" =~ ^0+$ ]]; then
+            git diff-tree --check --root --no-commit-id -r HEAD
+          else
+            if ! git cat-file -e "${BEFORE_SHA}^{commit}"; then
+              git fetch --no-tags --depth=1 origin "${BEFORE_SHA}"
+            fi
+            git diff --check "${BEFORE_SHA}" HEAD
+          fi

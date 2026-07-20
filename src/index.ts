@@ -5,6 +5,7 @@ import { adminTransportSecurityHeaders, adminUiSecurityHeaders, makeNonce } from
 import { isAutomationEnabled } from "./config";
 import { Repository } from "./db/repository";
 import { FlowRouter } from "./flows/router";
+import { readLimitedBody } from "./http/body";
 import { MetaApiClient } from "./meta/api";
 import { normalizeMetaWebhook } from "./meta/webhook";
 import { runScheduledMaintenance } from "./ops/maintenance";
@@ -98,7 +99,7 @@ const privacyBody = `<h1>Privacy Policy</h1>
       <h2>Purpose</h2>
       <p>Data is used only to match comments or messages to configured campaigns, send the requested Instagram reply, prevent duplicate deliveries, and troubleshoot delivery issues.</p>
       <h2>Sharing and retention</h2>
-      <p>Data is stored in the owner's Cloudflare account and is not sold or shared with third parties except infrastructure providers required to run the service. Operational records are retained only as long as needed for the automation and support.</p>
+      <p>Data is stored in the owner's Cloudflare account and is not sold or shared with third parties except infrastructure providers required to run the service. The default retention schedule is 30 days for webhook events, 90 days for delivery records, and 180 days for contact state records or until the related campaign is deleted.</p>
       <h2>Contact</h2>
       <p>For access or deletion requests, contact the owner of the Instagram account that connected this tool.</p>`;
 
@@ -271,48 +272,6 @@ export default {
     ctx.waitUntil(runScheduledMaintenance(repo, () => refreshInstagramTokenIfDue(env, repo, meta)));
   }
 } satisfies ExportedHandler<Env, DeliveryJob>;
-
-async function readLimitedBody(
-  request: Request,
-  maxBytes: number
-): Promise<{ ok: true; bytes: ArrayBuffer } | { ok: false }> {
-  const contentLength = request.headers.get("Content-Length");
-  if (contentLength) {
-    const parsed = Number.parseInt(contentLength, 10);
-    if (Number.isFinite(parsed) && parsed > maxBytes) return { ok: false };
-  }
-
-  const body = request.body;
-  if (!body) {
-    const bytes = await request.arrayBuffer();
-    if (bytes.byteLength > maxBytes) return { ok: false };
-    return { ok: true, bytes };
-  }
-
-  // Bodies without a trustworthy Content-Length must be capped while streaming,
-  // not after they are fully buffered.
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    totalBytes += value.byteLength;
-    if (totalBytes > maxBytes) {
-      await reader.cancel();
-      return { ok: false };
-    }
-    chunks.push(value);
-  }
-
-  const bytes = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return { ok: true, bytes: bytes.buffer };
-}
 
 function metaWebhookConfigured(env: Env): boolean {
   return (
