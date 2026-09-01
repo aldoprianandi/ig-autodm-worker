@@ -360,14 +360,11 @@ Supported `kind` values:
 
 ## Scheduled Work
 
-Cron runs once per minute and may:
+The cron trigger runs once per minute. Its work is split by cadence:
 
-- Refresh long-lived Instagram tokens when due.
-- Delete old operational rows.
-- Recover stale delivery rows.
-- Poll enabled campaign media as a fallback when webhooks are delayed.
-- Queue public comment replies after opening deliveries are sent.
-- Queue final deliveries after opening only when `AUTO_FINAL_AFTER_OPENING=true`.
+- Every minute: poll enabled campaign media as a fallback when webhooks are delayed, queue public comment replies after opening deliveries are sent, and optionally queue final deliveries after opening when `AUTO_FINAL_AFTER_OPENING=true`.
+- Every five minutes: recover stale delivery rows.
+- Hourly: refresh long-lived Instagram tokens when due and delete old operational rows.
 
 Polling is a fallback. Webhooks are the primary ingestion path; high-comment spikes can exceed fallback polling coverage.
 

@@ -9,6 +9,7 @@ import { readLimitedBody } from "./http/body";
 import { MetaApiClient } from "./meta/api";
 import { normalizeMetaWebhook } from "./meta/webhook";
 import { runScheduledMaintenance } from "./ops/maintenance";
+import { scheduledWorkAt } from "./ops/schedule";
 import { pollCampaignComments } from "./poller/comments";
 import { processDeliveryBatch } from "./queue/consumer";
 import { recoverStaleDeliveries } from "./queue/recovery";
@@ -262,14 +263,17 @@ app.route("/admin", adminRoutes);
 export default {
   fetch: app.fetch,
   queue: processDeliveryBatch,
-  scheduled(_controller, env, ctx) {
+  scheduled(controller, env, ctx) {
     const repo = new Repository(env.DB);
     const meta = new MetaApiClient(env.INSTAGRAM_ACCOUNT_ID, env.INSTAGRAM_ACCESS_TOKEN);
+    const work = scheduledWorkAt(controller.scheduledTime);
     ctx.waitUntil(pollCampaignComments(env));
-    if (isAutomationEnabled(env)) {
+    if (isAutomationEnabled(env) && work.recoverDeliveries) {
       ctx.waitUntil(recoverStaleDeliveries(repo, env.DELIVERY_QUEUE));
     }
-    ctx.waitUntil(runScheduledMaintenance(repo, () => refreshInstagramTokenIfDue(env, repo, meta)));
+    if (work.runMaintenance) {
+      ctx.waitUntil(runScheduledMaintenance(repo, () => refreshInstagramTokenIfDue(env, repo, meta)));
+    }
   }
 } satisfies ExportedHandler<Env, DeliveryJob>;
 

@@ -15,6 +15,7 @@ import migration0012 from "../migrations/0012_opening_failure_reply_text.sql?raw
 import migration0013 from "../migrations/0013_data_deletion_replay.sql?raw";
 import migration0014 from "../migrations/0014_data_deletion_status.sql?raw";
 import migration0015 from "../migrations/0015_data_deletion_confirmation_idx.sql?raw";
+import migration0016 from "../migrations/0016_delivery_recovery_indexes.sql?raw";
 import { Repository, type Campaign } from "../src/db/repository";
 import { app } from "../src/index";
 import { processDeliveryBatch } from "../src/queue/consumer";
@@ -37,7 +38,8 @@ const migrations = [
   migration0012,
   migration0013,
   migration0014,
-  migration0015
+  migration0015,
+  migration0016
 ];
 
 const campaign: Campaign = {
@@ -101,6 +103,54 @@ describe("D1 integration", () => {
       await expect(db.get("SELECT enabled FROM campaigns WHERE id = 'draft-by-default'")).resolves.toMatchObject({
         enabled: 0
       });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("uses targeted indexes for stale delivery recovery", async () => {
+    const db = await createMigratedD1();
+    try {
+      const deliveryPlan = await db.d1
+        .prepare(
+          `EXPLAIN QUERY PLAN
+          SELECT deliveries.rowid
+          FROM deliveries
+          WHERE (
+              deliveries.delivery_type IN ('opening', 'comment_reply', 'opening_failure_reply', 'final')
+              OR deliveries.delivery_type LIKE 'button_step:%'
+            )
+            AND deliveries.status IN ('queued', 'retrying')
+            AND deliveries.updated_at < ?1
+            AND deliveries.attempt_count >= ?2
+          ORDER BY deliveries.updated_at ASC
+          LIMIT ?3`
+        )
+        .bind(new Date().toISOString(), 5, 100)
+        .all<{ detail: string }>();
+
+      expect(deliveryPlan.results.map((row) => row.detail).join("\n")).toContain(
+        "deliveries_recovery_status_updated_idx"
+      );
+
+      const eventPlan = await db.d1
+        .prepare(
+          `EXPLAIN QUERY PLAN
+          SELECT event_id
+          FROM webhook_events
+          WHERE campaign_id = ?1
+            AND ig_user_id = ?2
+            AND event_type = 'comment.created'
+            AND event_id LIKE 'comment:%'
+          ORDER BY processed_at DESC
+          LIMIT 1`
+        )
+        .bind("campaign-1", "user-1")
+        .all<{ detail: string }>();
+
+      expect(eventPlan.results.map((row) => row.detail).join("\n")).toContain(
+        "webhook_events_recovery_comment_idx"
+      );
     } finally {
       db.close();
     }

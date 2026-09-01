@@ -29,7 +29,7 @@ flowchart LR
 - Router: Hono or minimal Worker request router. Hono is preferred for clarity.
 - Database: Cloudflare D1.
 - Queue: Cloudflare Queues for retryable sends.
-- Cron: Cloudflare scheduled trigger every minute for fallback polling, token refresh, cleanup, stale delivery recovery, and optional fallback queueing.
+- Cron: Cloudflare scheduled trigger every minute. It polls comments each minute, recovers stale deliveries every five minutes, and runs token refresh plus cleanup hourly.
 - Secrets: Cloudflare Worker secrets.
 - Tests: Vitest with Miniflare-compatible unit tests.
 - Optional AI: not enabled in the public template; future feature flag only.
@@ -62,7 +62,7 @@ Entrypoint. Registers routes:
 Also exports:
 
 - `queue`: Cloudflare Queue consumer.
-- `scheduled`: one-minute cron handler.
+- `scheduled`: one-minute cron handler with separate polling, recovery, and maintenance cadences.
 
 ### `src/security/signature.ts`
 
