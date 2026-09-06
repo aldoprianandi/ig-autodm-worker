@@ -5,191 +5,112 @@
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-orange)](https://workers.cloudflare.com/)
 [![Official Meta API only](https://img.shields.io/badge/Meta%20API-official%20only-blue)](docs/04-security-and-compliance.md)
 
-Self-hosted Instagram comment-to-DM automation on Cloudflare Workers using the official Meta Instagram API.
+**Turn an Instagram comment into a DM with the link your audience asked for. Self-hosted, using the official Meta API.**
 
-This project is a single-account template for creators and small operators who want to own their infrastructure instead of giving a third-party SaaS direct access to Instagram audience workflows. "Comment a keyword, get the link in your DM" — without renting it.
+For creators and developers who want a single-account comment-to-DM workflow on their own Cloudflare infrastructure. No Instagram password, session cookies, scraping, or unofficial APIs.
 
-![Admin console with campaign editor, live follower preview, and readiness checklist](assets/admin-ui-preview.png)
+[Get started](#get-started) · [Setup guide](docs/runbook.md) · [Costs & limits](docs/06-cost-and-ops.md) · [Ask a question](https://github.com/aldoprianandi/ig-autodm-worker/discussions) · [Bahasa Indonesia](docs/README.id.md)
 
-## What It Does
+![Admin console with campaign editor, message preview, and readiness checklist](assets/admin-ui-preview.png)
 
-- Watches configured Instagram media IDs for configured comment keywords, with typo-tolerant fuzzy matching (Damerau-Levenshtein; multi-word keywords require every token in any order).
-- Records Meta webhooks in Cloudflare D1 with idempotency, plus a cron poller that catches missed webhooks.
-- Queues an opening private reply with a postback button; the flow engine also supports chained DM button steps where each step and the final delivery require user interaction (multi-step saves stay locked off in this template for App Review-grade behavior).
-- Rotates message variants deterministically per user (opening, public reply, and each DM step), backed by a reusable searchable template library.
-- Sends an optional public comment reply after the opening delivery is marked sent, and an optional public rescue reply when the DM cannot be delivered.
-- Supports an optional follow gate: the final prompt waits until the user follows the account, with a retry button and `READY` text fallback.
-- Sends the final prompt or link only after user interaction by default.
-- Ships a browser admin console at `/admin-ui` with a guided campaign builder, live Instagram-style preview, readiness checklist, and operational dashboard.
-- Refreshes long-lived Instagram tokens on a schedule and stores refreshed tokens AES-GCM-encrypted in D1.
-- Keeps a global `AUTOMATION_ENABLED` kill switch and a local outbound send rate limiter.
-- Does not ship an OAuth callback route; the single-account setup uses a Meta-generated Instagram token.
+*Admin console preview. Real sending requires your own Cloudflare deployment and configured Meta access; this is not a hosted demo.*
 
-```mermaid
-flowchart LR
-  A["Instagram comment"] --> B["Meta webhook"]
-  B --> C["Cloudflare Worker"]
-  C --> D["D1 event and state"]
-  C --> E["Delivery queue"]
-  E --> F["Official Meta API send"]
-  C --> G["Admin UI and API"]
-```
+## The workflow
 
-## Safety Scope
+1. Someone comments **GUIDE** on a post you configured.
+2. They receive an opening private reply with a button.
+3. They tap the button to receive your guide or link.
+4. Optionally, a public reply tells them to check their DMs; a follow gate can wait for a confirmed follow before final delivery.
 
-This repository intentionally uses only the official Meta API. It does not use Instagram passwords, session cookies, scraping, browser automation, Selenium, mobile session replay, or unofficial private APIs.
+Useful for resource links, product information, and creator campaign responses. The service does not cold-message arbitrary users or automatically target every post.
 
-The default flow is narrow:
+## What is included?
 
-1. A user comments a configured keyword on a configured media ID.
-2. A signed Meta webhook or fallback poller records the event.
-3. The Worker queues an opening private reply.
-4. Optional public comment reply is queued only after the opening send succeeds.
-5. The final prompt normally waits for a button postback or matching text.
+- **Campaign console:** guided editor, message preview, reusable templates, and an operational dashboard.
+- **Keyword matching:** typo tolerance; multi-word keywords require every token, in any order.
+- **Reliable delivery plumbing:** signed webhooks, D1 deduplication, a delivery queue, bounded retries, and stale-job recovery.
+- **Message options:** deterministic variants, optional public replies, and an optional follow gate.
+- **Operator controls:** automation kill switch, outbound rate limiter, encrypted stored tokens, and scheduled refresh.
+- **Bounded fallback polling:** up to 10 media per minute, with delivery recovery every five minutes and maintenance hourly.
 
-`AUTO_FINAL_AFTER_OPENING=true` exists for fallback-heavy environments, but it should stay off for safer App Review behavior.
+See the [feature matrix](docs/10-feature-matrix.md) for supported behavior and limitations.
 
-## Quick Start
+## Is it a fit?
 
-Prerequisites:
+| A good fit | Not included |
+| --- | --- |
+| One Instagram Business or Creator account | Multi-account SaaS or a hosted service |
+| You can manage a Meta app and Cloudflare deployment | One-click setup without Meta configuration |
+| You want source access and control over your data | Guaranteed delivery, App Review approval, or unlimited free usage |
+| User-triggered comment-to-DM campaigns | Scraping, cold DMs, or private Instagram APIs |
 
-- Node.js 22 or newer.
-- npm 11.8.0 or compatible.
-- A Cloudflare account with Wrangler authenticated before remote deploy.
-- A Meta developer app with Instagram API access for a Business or Creator test account.
+The template uses a Meta-generated account token and does **not** ship an OAuth callback route. Multi-step configuration is locked off in the public template, although the flow engine supports interactive steps. Automatic final delivery is opt-in; keep `AUTO_FINAL_AFTER_OPENING` unset or false for the default interaction-driven flow.
+
+## Get started
+
+You need Node.js 22+, npm 11.8.0 or compatible, and Git. Remote sending also needs a Cloudflare account, a Meta developer app, and suitable Instagram API access for a Business or Creator account. This project is not affiliated with or endorsed by Meta or Cloudflare.
+
+### 1. Get the source
+
+Fork this repository if you want your own GitHub copy, or clone it:
 
 ```bash
-npm install
+git clone https://github.com/aldoprianandi/ig-autodm-worker.git
+cd ig-autodm-worker
+npm ci
 cp .dev.vars.example .dev.vars
 cp wrangler.example.toml wrangler.toml
+```
+
+Edit the copied files for your local test setup. Keep `AUTOMATION_ENABLED=false`; never commit private configuration.
+
+### 2. Check your local setup
+
+```bash
 npm run doctor
 npm run db:migrate:local
 npm run dev
 ```
 
-Edit the copied files before running the doctor. The doctor is an offline, read-only check: it reports key names and setup status without printing values, contacting Cloudflare or Meta, migrating data, or deploying.
+The doctor is offline and read-only. It reports setup status without printing values; it does not verify remote tokens, permissions, or webhook delivery.
 
-Then check:
+Open `http://localhost:8787/admin-ui` for the console, or check `http://localhost:8787/health`. Local health confirms the Worker starts, not that Instagram sending works.
 
-```bash
-curl http://localhost:8787/health
-```
+### 3. Connect and deploy
 
-Admin console:
+Follow the [deployment runbook](docs/runbook.md#cloudflare-setup) to create D1 and queues, configure secrets, apply remote migrations, and deploy. Use the [Meta setup and review guide](docs/05-meta-app-review-playbook.md) for the platform-specific prerequisites.
 
-```text
-http://localhost:8787/admin-ui
-```
+Keep automation disabled until health, webhook verification, admin login, and a draft campaign pass. Then enable only one test campaign and verify comment → opening DM → user interaction → final delivery.
 
-## Cloudflare Setup
+## Costs and limits
 
-```bash
-npx wrangler d1 create ig-autodm-worker
-npx wrangler queues create ig-autodm-deliveries
-npx wrangler queues create ig-autodm-deliveries-dlq
-```
+Self-hosting has no project subscription fee, but infrastructure usage and your operating time are not unlimited. Free-tier suitability depends on daily traffic, query scans, queue operations, and retries—not just monthly audience size.
 
-Copy the generated D1 database ID into your local `wrangler.toml`, then configure Worker secrets:
+Fallback polling reads the latest 25 comments per selected media. A full rotation takes `ceil(enabled media / 10)` minutes; high-volume campaigns need working webhooks. A quota reset or an HTTP health check is not proof that deliveries recovered.
 
-```bash
-npx wrangler secret put META_APP_SECRET
-npx wrangler secret put META_VERIFY_TOKEN
-npx wrangler secret put INSTAGRAM_ACCESS_TOKEN
-npx wrangler secret put INSTAGRAM_ACCOUNT_ID
-npx wrangler secret put ADMIN_TOKEN
-npx wrangler secret put ADMIN_LOGIN_USERNAME
-npx wrangler secret put ADMIN_LOGIN_PASSWORD
-npx wrangler secret put AUTOMATION_ENABLED
-npx wrangler secret put TOKEN_ENCRYPTION_KEY
-```
+Read [costs, D1 quota recovery, and troubleshooting](docs/06-cost-and-ops.md) before enabling a campaign.
 
-Optional:
+## Help improve it
 
-```bash
-npx wrangler secret put INSTAGRAM_MESSAGING_ACCOUNT_IDS
-npx wrangler secret put INSTAGRAM_APP_SECRET
-npx wrangler secret put TURNSTILE_SECRET_KEY
-npx wrangler secret put TURNSTILE_SITE_KEY
-npx wrangler secret put META_SENDS_PER_MINUTE
-npx wrangler secret put AUTO_FINAL_AFTER_OPENING
-```
+- [Ask setup questions or share a workflow](https://github.com/aldoprianandi/ig-autodm-worker/discussions).
+- [Report a reproducible bug or documentation gap](https://github.com/aldoprianandi/ig-autodm-worker/issues/new/choose), using placeholder data only.
+- [Start contributing](CONTRIBUTING.md#where-to-start): documentation and tests are welcome; you do not need a live Instagram token to run the test suite.
+- Report vulnerabilities through the [security policy](SECURITY.md), not public issues.
 
-Get `INSTAGRAM_ACCESS_TOKEN` from the Meta App Dashboard for the connected Instagram Business or Creator test account. To find `INSTAGRAM_ACCOUNT_ID`, call `/me` with that token and use the returned `user_id`:
-
-```bash
-read -r -s IG_ACCESS_TOKEN
-curl -H "Authorization: Bearer ${IG_ACCESS_TOKEN}" \
-  "https://graph.instagram.com/v25.0/me?fields=user_id,username"
-unset IG_ACCESS_TOKEN
-```
-
-`INSTAGRAM_MESSAGING_ACCOUNT_IDS` is optional. Leave it unset unless real messaging webhooks show an entry or recipient ID that differs from `INSTAGRAM_ACCOUNT_ID`; if needed, store a comma-separated placeholder-safe list of allowed IDs.
-
-## Verification
-
-Run before deploying or opening a PR:
-
-```bash
-npm run typecheck
-npm run infra:validate
-npm run test:coverage
-npm audit --json
-npm audit signatures
-npm run scan:oss
-git diff --check
-```
-
-## Deploy
-
-```bash
-npm run db:migrate:remote
-npm run deploy
-```
-
-After deploy, your Worker URL will look like:
-
-```text
-https://<worker-name>.<cloudflare-account>.workers.dev
-```
-
-Use this shape in the Meta dashboard:
-
-```text
-https://<worker-name>.<cloudflare-account>.workers.dev/webhooks/meta
-```
-
-Keep `AUTOMATION_ENABLED=false` for the first deploy. After health, webhook verification, admin login, and one disabled/draft campaign are verified, set it to `true` and enable only the test campaign for the first end-to-end run.
-
-## Why Self-Host
-
-SaaS comment-to-DM tools sit between your Instagram account and your audience: they hold your access token, your contact data, and your monthly bill. This template runs the same workflow on your own Cloudflare account — typically within the free tier — with HMAC-verified webhooks, encrypted token storage, rate-limited sends, and an auditable admin surface you fully control.
-
-If this replaces a subscription for you, a star helps other creators find it.
-
-## Feedback and Support
-
-- Use [GitHub Discussions](https://github.com/aldoprianandi/ig-autodm-worker/discussions) for setup questions, ideas, and self-host showcases.
-- Use [GitHub Issues](https://github.com/aldoprianandi/ig-autodm-worker/issues) for reproducible bugs and documentation gaps.
-- Read the [Support Guide](SUPPORT.md) before sharing diagnostics. Never post tokens, account IDs, live media IDs, or deployment details.
+If the project is useful, consider starring it to bookmark it and show support. Specific feedback and reproducible fixes are equally welcome.
 
 ## Documentation
 
-- [Product Requirements](docs/01-prd.md)
-- [Requirements](docs/02-requirements.md)
-- [Architecture](docs/03-architecture.md)
-- [Security and Compliance](docs/04-security-and-compliance.md)
-- [Meta App Review Playbook](docs/05-meta-app-review-playbook.md)
-- [Cost and Operations](docs/06-cost-and-ops.md)
-- [Roadmap](docs/07-roadmap.md)
-- [API Reference](docs/09-api-reference.md)
-- [Feature Matrix](docs/10-feature-matrix.md)
-- [Runbook](docs/runbook.md)
-- [Changelog](CHANGELOG.md)
-- [Contributing](CONTRIBUTING.md)
-- [Support](SUPPORT.md)
-- [Security Policy](SECURITY.md)
-- [Code of Conduct](CODE_OF_CONDUCT.md)
+| Goal | Start here |
+| --- | --- |
+| Install and operate | [Runbook](docs/runbook.md) · [Support](SUPPORT.md) |
+| Understand costs and failure modes | [Cost & operations](docs/06-cost-and-ops.md) |
+| Configure Meta | [App Review playbook](docs/05-meta-app-review-playbook.md) |
+| Explore the API and implementation | [API reference](docs/09-api-reference.md) · [Architecture](docs/03-architecture.md) |
+| Check capabilities and changes | [Feature matrix](docs/10-feature-matrix.md) · [Changelog](CHANGELOG.md) · [Roadmap](docs/07-roadmap.md) |
+| Understand security boundaries | [Security & compliance](docs/04-security-and-compliance.md) · [Runtime audit](docs/11-runtime-audit-2026-09-06.md) |
+| Contribute responsibly | [Contributing](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md) |
 
 ## License
 
-MIT.
+[MIT](LICENSE).

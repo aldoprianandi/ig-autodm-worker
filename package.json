@@ -20,6 +20,7 @@
     "infra:dry-run": "wrangler deploy --dry-run --config wrangler.example.toml",
     "doctor": "node scripts/doctor.mjs",
     "scan:oss": "node scripts/oss-scan.mjs",
+    "docs:check": "node scripts/check-doc-links.mjs",
     "db:migrate:example": "node scripts/d1-migrate-example.mjs",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote"

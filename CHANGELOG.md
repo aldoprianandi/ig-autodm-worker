@@ -4,6 +4,29 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- Bounded fallback polling to 10 media per minute, with stable rotation and isolated media failures.
+- Protected uncertain sends from ordinary retries and preserved completed delivery evidence.
+- Capped retryable follow-status failures and corrected follow-gate/postback edge cases.
+- Replaced combinatorial fuzzy matching with augmenting-path token assignment.
+
+### Added
+
+- Recovery indexes, real D1 read-cost regression tests, and scheduled-handler tests.
+- An Indonesian quick-start guide and local documentation-link validation.
+
+### Documentation
+
+- Reorganized the README around setup, suitability, and operating limits.
+- Updated contribution guidance and D1 quota troubleshooting.
+
+### Upgrade notes
+
+- Apply pending migrations, including `0016_delivery_recovery_indexes.sql`, before deploying.
+- Fallback coverage now takes ceil(enabled media / 10) minutes; maintain functioning webhooks for busy posts.
+- Reconcile `send_status_unknown` with Meta before considering a manual resend.
+
 ## 0.2.0 - 2026-07-20
 
 ### Added

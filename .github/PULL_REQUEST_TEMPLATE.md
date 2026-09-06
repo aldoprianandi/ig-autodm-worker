@@ -10,6 +10,7 @@
 - [ ] `npm audit --json`
 - [ ] `npm audit signatures`
 - [ ] `npm run scan:oss`
+- [ ] `npm run docs:check`
 - [ ] `git diff --check`
 
 ## Safety Checklist

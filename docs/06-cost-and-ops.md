@@ -1,91 +1,51 @@
 # Cost and Operations
 
-## Cost Model
+## Estimate usage, not audience size
 
-### Cloudflare-Based MVP
+There is no project subscription fee. Infrastructure usage can still hit quotas or incur charges. Do not infer a bill from monthly followers or engaged users alone: retries, indexes, periodic work, and daily spikes all matter.
 
-| Component | Expected cost |
-|---|---:|
-| Meta Developer App | `$0` |
-| Instagram Graph/Messaging API | `$0` |
-| Cloudflare Workers Free | `$0` |
-| Cloudflare D1 Free | `$0` |
-| Cloudflare Queues Free | `$0` |
-| `workers.dev` subdomain | `$0` |
-| Custom domain | optional, around `$8-$15/year` |
-| OpenAI | `$0` when static delivery is used |
+Pricing references checked on 2026-09-06; verify the linked provider pages before choosing a plan.
 
-Cloudflare free tier is enough for early traffic when each user creates only a few webhook and API events.
+| Free-plan resource | Included allowance / relevant limit |
+| --- | --- |
+| D1 reads | 5 million rows per day |
+| D1 writes | 100,000 rows per day |
+| Queues | 10,000 operations per day; 24-hour retention |
+| Worker external subrequests | 50 per invocation |
 
-### Cloudflare Queues Cost Notes
+Sources: [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/), [Queues pricing](https://developers.cloudflare.com/queues/platform/pricing/), [Workers limits](https://developers.cloudflare.com/workers/platform/limits/).
 
-Queues bill by operations. A normal delivery job is usually three operations: write, read, delete. Each queue retry adds another read operation, and platform-level exhaustion can write the message to the DLQ.
+A typical queue message uses write, read, and delete operations. Three deliveries for one flow therefore start around nine queue operations, before retries or recovery. D1 work also includes event deduplication, state updates, claims, rate limits, and index maintenance—not merely one write per user.
 
-Current planning assumptions:
+Use measured D1 `rows_read` / `rows_written`, queue operations, and Worker outcomes to project daily usage. Include other services sharing the same account. Paid usage is not an unlimited guarantee; consult [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) before changing plans.
 
-- Workers Free includes 10,000 Queues operations per day and 24-hour message retention.
-- Workers Paid includes 1,000,000 Queues operations per month, then about `$0.40` per million operations.
-- Queue messages are limited to 128 KB; this template sends small delivery job payloads.
-- Platform limits relevant here include up to 100 message retries, consumer batches up to 100 messages, retry delays up to 24 hours, about 5,000 messages/second per queue, and a 25 GB per-queue backlog.
-- This repo uses `max_batch_size=1`, `max_retries=5`, `retry_delay=60`, `max_concurrency=2`, and a DLQ named `ig-autodm-deliveries-dlq` in `wrangler.example.toml`.
+## Built-in work limits
 
-Check Cloudflare pricing before high-volume campaigns; viral posts can spend the free daily operation budget quickly because retries also count.
+- Polling: up to 10 media per minute, with the latest 25 comments per selected media.
+- Full fallback rotation: ceil(enabled media count / 10) minutes. For example, 30 media take three minutes.
+- Delivery recovery: every five minutes, using status-led indexes.
+- Cleanup and token maintenance: hourly.
+- Queue configuration: one-message batches, five platform retries, 60-second delay, and maximum concurrency two.
 
-### When To Upgrade Workers
+Webhooks remain the primary real-time path. Polling can miss comments that leave its latest-comment window; it is not an unlimited historical import.
 
-Upgrade to Workers Paid when:
+## D1 daily rows-read limit exceeded
 
-- webhook traffic exceeds free daily request limits.
-- queue operations exceed free limits.
-- longer CPU time or better observability is needed.
-- this becomes business-critical.
+A read quota is not a storage limit. Deleting old delivery records is not a quota reset and can remove deduplication evidence.
 
-Expected minimum: `$5/month` for Workers Paid.
+1. Inspect D1 query analytics to identify scans and their frequency. Avoid repeated broad diagnostic queries while quota is constrained.
+2. Check pending remote migrations and apply the recovery indexes with `npm run db:migrate:remote` during an appropriate maintenance window.
+3. Confirm the deployed Worker contains the bounded polling and recovery cadence; a GitHub push alone does not deploy it.
+4. If daily quota is already exhausted, affected queries can continue failing until the 00:00 UTC reset or an operator-approved plan change. Index creation also requires database access.
+5. After access returns, verify scheduled outcomes, queue recovery, and actual deliveries—not just `/health`.
 
-## Traffic Scenarios
+See [D1 quota behavior](https://developers.cloudflare.com/d1/platform/pricing/) for provider details. Use the established retention policy, rather than ad hoc deletion of campaign history.
 
-Assumption per user:
+## Worker CPU or subrequest failures
 
-- one comment webhook.
-- one opening delivery.
-- one public comment reply delivery when configured.
-- one button/postback or matching text-fallback webhook in the public safety profile.
-- one final delivery.
-- two to five database writes.
+Check invocation outcomes for CPU-limit failures and inspect sanitized logs. Do not increase polling to all enabled media in a single run. One inaccessible media request is isolated, but a successful cron outcome alone does not prove every Meta call succeeded.
 
-| Monthly engaged users | Worker requests | D1 writes | Infra estimate |
-|---:|---:|---:|---:|
-| 1,000 | about 2,000-5,000 | about 5,000 | `$0` |
-| 10,000 | about 20,000-50,000 | about 50,000 | `$0` |
-| 100,000 | about 200,000-500,000 | about 500,000 | `$0-$5+` depending on daily spikes |
-
-The risk is not total monthly usage first. The risk is a viral post creating a daily spike and hitting free daily limits.
-
-## AI Cost
-
-Static delivery:
-
-```text
-AI cost = $0
-```
-
-Dynamic AI delivery:
-
-```text
-cost = input_tokens / 1,000,000 * input_price + output_tokens / 1,000,000 * output_price
-```
-
-Use AI only for:
-
-- rewriting approved campaign text.
-- classifying comments.
-- answering follow-up DM questions after the MVP works.
-
-Do not use AI for:
-
-- the App Review demo.
-- deciding whether to bypass a policy.
-- sending sensitive secrets or raw webhook headers.
+Use the [runtime audit](11-runtime-audit-2026-09-06.md) and [runbook](runbook.md) to distinguish code checks from live integration verification.
 
 ## Operational Dashboard
 

@@ -50,6 +50,9 @@ jobs:
       - name: OSS scan
         run: npm run scan:oss
 
+      - name: Documentation links
+        run: npm run docs:check
+
       - name: Whitespace check
         shell: bash
         env:

@@ -2,10 +2,19 @@
 
 Thanks for helping improve IG AutoDM Worker.
 
+## Where to start
+
+- Try the documented local setup and report the exact step that was unclear, using placeholders.
+- Improve an error explanation or the Indonesian quick-start guide.
+- Add a regression test for a reproducible edge case before changing runtime behavior.
+- Browse [good first issues](https://github.com/aldoprianandi/ig-autodm-worker/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22), or propose a small task in Discussions if none are open.
+
+Tests use synthetic data and mocked Meta calls; running them does not require a live Instagram token. For substantial changes, discuss scope before implementation. A contribution does not need to add a feature to be valuable.
+
 ## Local Setup
 
 ```bash
-npm install
+npm ci
 cp .dev.vars.example .dev.vars
 cp wrangler.example.toml wrangler.toml
 npm run db:migrate:local
@@ -25,6 +34,7 @@ npm run test:coverage
 npm audit --json
 npm audit signatures
 npm run scan:oss
+npm run docs:check
 git diff --check
 ```
 

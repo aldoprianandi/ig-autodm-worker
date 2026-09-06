@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Setup help and questions / Bantuan setup
+    url: https://github.com/aldoprianandi/ig-autodm-worker/discussions
+    about: Ask in English or Indonesian. Never share tokens or private deployment details.
+  - name: Security reporting
+    url: https://github.com/aldoprianandi/ig-autodm-worker/security/policy
+    about: Read the security policy before reporting a vulnerability. Do not post details publicly.
