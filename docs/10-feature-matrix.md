@@ -15,7 +15,7 @@
 | Button template | Live | Sent in opening message; the public safety profile uses a postback button that queues the final prompt/link DM after user tap. |
 | Multi-step DM buttons | Locked off | Campaign saves force an empty step list while the public template stays to one button tap before the final DM. |
 | Automatic final delivery fallback | Feature-flagged | Disabled by default. Set `AUTO_FINAL_AFTER_OPENING=true` only when accepting the Meta compliance tradeoff. |
-| Comment polling fallback | Live | Cron checks enabled campaign media every minute. |
+| Comment polling fallback | Live | Cron checks up to 10 enabled media each minute, rotating in stable order; full coverage takes ceil(media count / 10) minutes. Webhook processing remains immediate. |
 | Private reply age guard | Live | Poller skips comments older than 7 days. |
 | Follow gate | Live | Standard postback campaigns can require the user to follow before final delivery; the follow instruction text and retry button title are campaign-customizable, with `READY` as a text fallback. |
 | Duplicate suppression | Live | Uses `webhook_events` and `deliveries` unique keys. |

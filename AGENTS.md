@@ -11,7 +11,7 @@ Runtime primitives:
 - Cloudflare Worker
 - D1 binding: `DB`
 - Queue binding: `DELIVERY_QUEUE`
-- Cron trigger: every minute
+- Cron trigger: every minute; delivery recovery every five minutes; cleanup/token maintenance hourly
 - Meta/Instagram API only; no Instagram password, session cookies, scraping, or browser automation.
 
 The default public flow is intentionally narrow:
@@ -127,3 +127,17 @@ git log --format='%s' main..HEAD | rg -n -v '^(feat|fix|docs|test|chore|refactor
 - Prefer disabling a campaign or setting `AUTOMATION_ENABLED=false` over risky live debugging.
 - Treat connected Instagram accounts as production accounts.
 - If a token may have leaked, recommend rotation and record only that rotation happened, not the token.
+
+## Regression and migration rules
+
+- Fallback polling rotates at most 10 media per minute; do not restore unbounded all-media polling. Keep webhook processing immediate and document full-rotation latency.
+
+- Preserve terminal delivery evidence when processing duplicate queue messages or disabling automation.
+- Never requeue `send_status_unknown` automatically or through ordinary user retries; reconcile the upstream send first.
+- A failed media poll must not prevent polling other configured media or running delivery fallback.
+- Upstream follow-status failures count toward the delivery retry cap; only local throttling is exempt.
+- Intermediate DM steps and final delivery require user interaction. Keep automatic final fallback explicitly opt-in.
+- Test recovery against thousands of terminal delivery rows and assert actual D1 `rows_read`, not only index names.
+- Preserve each repository's existing migration history. Selfhost's migration 0013 includes schema changes split into 0013–0015 in the public template; do not copy those ALTER migrations over it.
+- Verify migrations against the target database before marking deployment complete. A successful `/health` response alone does not verify D1, cron, or Meta.
+- Review applicable skills only; do not install or rewrite personal/global skills as part of routine repository maintenance.

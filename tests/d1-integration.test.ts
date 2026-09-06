@@ -63,6 +63,52 @@ const campaign: Campaign = {
 };
 
 describe("D1 integration", () => {
+  it("keeps uncertain sends out of interactive and opening retries", async () => {
+    const db = await createMigratedD1();
+    try {
+      const repo = new Repository(db.d1);
+      await repo.upsertCampaign(campaign);
+      for (const type of ["opening", "final"]) {
+        const id = "prompt-test:user-1:" + type;
+        await repo.createDelivery({ id, campaignId: campaign.id, igUserId: "user-1", deliveryType: type, status: "queued" });
+        await repo.markDeliveryFailed(id, "send_status_unknown", "Manual reconciliation required");
+        expect(await repo.requeueInteractiveDelivery(id)).toBe(false);
+        expect(await repo.requeueFailedOpeningDelivery(id)).toBe(false);
+        await repo.markDeliveryFailed(id, "transient_test_failure", "Safe to retry");
+        expect(await repo.requeueInteractiveDelivery(id)).toBe(true);
+      }
+    } finally { await db.close(); }
+  });
+
+  it("does not scan terminal delivery history during recovery", async () => {
+    const db = await createMigratedD1();
+    try {
+      const repo = new Repository(db.d1);
+      await repo.upsertCampaign(campaign);
+      await db.d1.prepare(`WITH RECURSIVE seq(x) AS (
+        SELECT 1 UNION ALL SELECT x + 1 FROM seq WHERE x < 4000
+      ) INSERT INTO deliveries (id, campaign_id, ig_user_id, delivery_type, status, created_at, updated_at)
+        SELECT 'history-' || x, 'prompt-test', 'history-' || x, 'opening', 'sent',
+        '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z' FROM seq`).run();
+      let rowsRead = 0;
+      const measured = { prepare(sql: string) {
+        const statement = db.d1.prepare(sql);
+        return { bind(...values: unknown[]) {
+          const bound = statement.bind(...values);
+          return {
+            async all() { const result = await bound.all(); rowsRead += result.meta.rows_read; return result; },
+            async run() { const result = await bound.run(); rowsRead += result.meta.rows_read; return result; }
+          };
+        } };
+      } };
+      const recoveryRepo = new Repository(measured as unknown as D1Database);
+      expect(await recoveryRepo.listRecoverableDeliveries()).toEqual([]);
+      expect(await recoveryRepo.markExhaustedRecoverableDeliveries()).toBe(0);
+      expect(await recoveryRepo.markStaleProcessingDeliveriesUnknown()).toBe(0);
+      expect(rowsRead).toBeLessThan(30);
+    } finally { await db.close(); }
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });

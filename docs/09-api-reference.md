@@ -1,5 +1,9 @@
 # API Reference
 
+## Delivery retry semantics
+
+Send transport failures are recorded as `send_status_unknown`, because Meta may have accepted the request before the connection failed. Ordinary opening/interactive retries do not resend these deliveries; reconcile them manually first. Retryable profile reads and unknown follow-status checks use the bounded retry budget. Intermediate DM steps require user interaction, including the final step after a follow-gate retry.
+
 This service exposes a small public Worker surface and a protected admin surface. All examples use placeholders; do not paste real secrets into docs, issues, screenshots, or fixtures.
 
 ## Base URLs

@@ -132,7 +132,12 @@ export async function processDeliveryJob(
     }
     const commentId = job.commentId;
     const commentReplyText = publicReplyTextForJob(campaign, job);
-    if (!commentReplyText) return "ack";
+    if (!commentReplyText) {
+      const claim = await claimDelivery(repo, job.deliveryId);
+      if (claim) return claim;
+      await repo.markDeliveryFailed(job.deliveryId, "malformed_campaign", "Public reply text is missing");
+      return "ack";
+    }
     const claim = await claimDelivery(repo, job.deliveryId);
     if (claim) return claim;
     const blocked = await ensureOutboundSendAllowed(repo, job, outboundLimit);
@@ -193,7 +198,7 @@ export async function processDeliveryJob(
       );
     }
 
-    const profile = await runRetryableMetaCall(repo, job, () => meta.getUserProfile(job.igUserId));
+    const profile = await runRetryableMetaCall(repo, job, () => meta.getUserProfile(job.igUserId), true);
     if (isDeliveryDisposition(profile)) return profile;
 
     if (profile.isUserFollowBusiness === null) {
@@ -201,8 +206,7 @@ export async function processDeliveryJob(
         repo,
         job.deliveryId,
         "follow_status_unknown",
-        "Could not verify follow status before final delivery",
-        { countAttempt: false }
+        "Could not verify follow status before final delivery"
       );
     }
 
@@ -319,17 +323,21 @@ async function retryDelivery(
   return queuedForRetry ? "retry" : "ack";
 }
 
-// Thrown fetch/network errors must mark the delivery retrying instead of crashing the
-// queue invocation; messages are redacted before storage.
+// Reads can be retried after a transport error. A send may already have been
+// accepted upstream, so ambiguous sends require reconciliation instead.
 async function runRetryableMetaCall<T>(
   repo: DeliveryRepository,
   job: DeliveryJob,
-  operation: () => Promise<T>
+  operation: () => Promise<T>,
+  safeToRetry = false
 ): Promise<T | DeliveryDisposition> {
   try {
     return await operation();
   } catch (error) {
-    return retryDelivery(repo, job.deliveryId, "delivery_exception", unexpectedDeliveryErrorMessage(error));
+    const message = unexpectedDeliveryErrorMessage(error);
+    if (safeToRetry) return retryDelivery(repo, job.deliveryId, "delivery_exception", message);
+    await repo.markDeliveryFailed(job.deliveryId, "send_status_unknown", message);
+    return "ack";
   }
 }
 

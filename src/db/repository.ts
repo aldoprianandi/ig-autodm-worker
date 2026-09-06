@@ -721,7 +721,8 @@ export class Repository {
             attempt_count = 0,
             updated_at = ?2
         WHERE id = ?1
-          AND status IN ('queued', 'retrying', 'failed')`
+          AND status IN ('queued', 'retrying', 'failed')
+          AND COALESCE(error_code, '') != 'send_status_unknown'`
       )
       .bind(deliveryId, new Date().toISOString())
       .run();
@@ -740,7 +741,8 @@ export class Repository {
             updated_at = ?2
         WHERE id = ?1
           AND delivery_type = 'opening'
-          AND status = 'failed'`
+          AND status = 'failed'
+          AND COALESCE(error_code, '') != 'send_status_unknown'`
       )
       .bind(deliveryId, new Date().toISOString())
       .run();

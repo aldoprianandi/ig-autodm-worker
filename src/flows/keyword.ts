@@ -39,27 +39,28 @@ function tokenize(value: string): string[] {
 }
 
 function phraseTokensMatch(keywordTokens: string[], commentTokens: string[]): boolean {
-  const keywordOrder = keywordTokens
-    .map((token, index) => ({ token, index }))
-    .sort((a, b) => b.token.length - a.token.length || a.index - b.index);
-  const used = new Set<number>();
+  // Match each keyword to a distinct comment token using augmenting paths.
+  // Backtracking over every assignment can explode on repetitive comments.
+  const candidates = keywordTokens.map((keywordToken) =>
+    commentTokens.flatMap((commentToken, index) => tokensMatch(commentToken, keywordToken) ? [index] : [])
+  );
+  if (candidates.some((matches) => matches.length === 0)) return false;
+  const owner = new Map<number, number>();
 
-  function matchAt(keywordIndex: number): boolean {
-    if (keywordIndex >= keywordOrder.length) return true;
-    const keywordToken = keywordOrder[keywordIndex].token;
-
-    for (let index = 0; index < commentTokens.length; index += 1) {
-      if (used.has(index)) continue;
-      if (!tokensMatch(commentTokens[index], keywordToken)) continue;
-      used.add(index);
-      if (matchAt(keywordIndex + 1)) return true;
-      used.delete(index);
+  function assign(keywordIndex: number, visited: Set<number>): boolean {
+    for (const commentIndex of candidates[keywordIndex]) {
+      if (visited.has(commentIndex)) continue;
+      visited.add(commentIndex);
+      const previousOwner = owner.get(commentIndex);
+      if (previousOwner === undefined || assign(previousOwner, visited)) {
+        owner.set(commentIndex, keywordIndex);
+        return true;
+      }
     }
-
     return false;
   }
 
-  return matchAt(0);
+  return keywordTokens.every((_, index) => assign(index, new Set<number>()));
 }
 
 function tokensMatch(commentToken: string, keywordToken: string): boolean {

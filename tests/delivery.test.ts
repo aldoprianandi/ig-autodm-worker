@@ -154,6 +154,64 @@ class FakeQueue {
 }
 
 describe("processDeliveryJob", () => {
+  it("does not resend when a transport failure leaves Meta acceptance unknown", async () => {
+    const repo = new FakeDeliveryRepository();
+    const meta = new FakeMetaClient();
+    meta.sendText = async () => { throw new Error("connection closed"); };
+    expect(await processDeliveryJob(repo as never, meta as never, finalJob)).toBe("ack");
+    expect(repo.failed).toMatchObject([{ code: "send_status_unknown" }]);
+    expect(repo.retrying).toEqual([]);
+  });
+
+  it("can retry a failed profile read because no message was sent", async () => {
+    const repo = new FakeDeliveryRepository();
+    repo.campaign = { ...baseCampaign, followGateEnabled: true };
+    const meta = new FakeMetaClient();
+    meta.getUserProfile = async () => { throw new Error("connection closed"); };
+    expect(await processDeliveryJob(repo as never, meta as never, finalJob)).toBe("retry");
+    expect(repo.retrying).toMatchObject([{ code: "delivery_exception" }]);
+    expect(repo.failed).toEqual([]);
+  });
+
+  it("does not advance past a delivered intermediate step without interaction", async () => {
+    const repo = new FakeDeliveryRepository();
+    repo.campaign = { ...baseCampaign, dmSteps: [{ text: "Step", textVariants: [], buttonTitle: "NEXT" }] };
+    const queue = new FakeQueue();
+    const job: DeliveryJob = { ...finalJob, deliveryType: "button_step", stepIndex: 0 };
+    await processDeliveryJob(repo as never, new FakeMetaClient() as never, job, true, 30, queue as never);
+    expect(repo.sent).toHaveLength(1);
+    expect(queue.sent).toEqual([]);
+    expect(repo.createdDeliveries).toEqual([]);
+  });
+
+  it("counts unknown follow checks toward the retry cap", async () => {
+    const repo = new FakeDeliveryRepository();
+    repo.campaign = { ...baseCampaign, followGateEnabled: true };
+    const meta = new FakeMetaClient();
+    meta.getUserProfile = async () => ({ isUserFollowBusiness: null });
+    expect(await processDeliveryJob(repo as never, meta as never, finalJob)).toBe("retry");
+    expect(repo.retryOptions).toEqual([undefined]);
+    repo.retryingAllowed = false;
+    expect(await processDeliveryJob(repo as never, meta as never, finalJob)).toBe("ack");
+    expect(meta.sentTexts).toEqual([]);
+  });
+
+  it("terminates an unsendable public reply instead of leaving it recoverable forever", async () => {
+    const repo = new FakeDeliveryRepository();
+    const meta = new FakeMetaClient();
+    await processDeliveryJob(repo as never, meta as never, {
+      ...finalJob, deliveryType: "comment_reply", commentId: "comment-1"
+    });
+    expect(repo.failed).toMatchObject([{ code: "malformed_campaign" }]);
+  });
+
+  it("preserves a previously claimed or completed delivery when automation is disabled", async () => {
+    const repo = new FakeDeliveryRepository();
+    repo.claimAllowed = false;
+    expect(await processDeliveryJob(repo as never, new FakeMetaClient() as never, finalJob, false)).toBe("ack");
+    expect(repo.failed).toEqual([]);
+  });
+
   it("acks without sending when automation is globally disabled", async () => {
     const repo = new FakeDeliveryRepository();
     const meta = new FakeMetaClient();

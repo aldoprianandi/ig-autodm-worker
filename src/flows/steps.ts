@@ -80,7 +80,9 @@ function parseStepPayload(campaignId: string, payload: string): number | undefin
   const prefix = `${campaignId}:step:`;
   if (!payload.startsWith(prefix)) return undefined;
 
-  const stepNumber = Number.parseInt(payload.slice(prefix.length), 10);
+  const suffix = payload.slice(prefix.length);
+  if (!/^[1-9]\d*$/.test(suffix)) return undefined;
+  const stepNumber = Number(suffix);
   return Number.isInteger(stepNumber) && stepNumber > 0 ? stepNumber - 1 : undefined;
 }
 
@@ -90,7 +92,8 @@ function canRequestStep(state: string, stepIndex: number): boolean {
 }
 
 function canConfirmFinal(campaign: Campaign, state: string): boolean {
-  if (!campaign.dmSteps.length) return state === "commented" || state === "follow_requested";
+  if (state === "follow_requested") return true;
+  if (!campaign.dmSteps.length) return state === "commented";
   return state === sentStepState(campaign.dmSteps.length - 1);
 }
 

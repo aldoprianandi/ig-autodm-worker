@@ -75,6 +75,45 @@ class FakeRouter {
 }
 
 describe("comment poller", () => {
+  it("bounds each run and rotates through every media independent of repository order", async () => {
+    const enabled = Array.from({ length: 73 }, (_, i) => ({
+      ...campaigns[0], id: `campaign-${i}`, mediaId: `media-${i}`
+    }));
+    const seen = new Set<string>();
+    for (let minute = 0; minute < 8; minute++) {
+      const meta = new FakeMeta();
+      const result = await pollCampaignCommentsWith({
+        async listEnabledCampaigns() { return minute % 2 ? [...enabled].reverse() : enabled; }
+      }, meta, new FakeRouter(), minute * 60_000);
+      expect(meta.calls.length).toBeLessThanOrEqual(10);
+      expect(result.campaignsChecked).toBe(meta.calls.length);
+      for (const id of meta.calls) {
+        expect(seen.has(id)).toBe(false);
+        seen.add(id);
+      }
+    }
+    expect(seen.size).toBe(73);
+  });
+
+  it("continues polling healthy media after an inaccessible post", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const meta = new FakeMeta();
+    const original = meta.listMediaComments.bind(meta);
+    meta.listMediaComments = async (id) => {
+      if (id === "deleted-media") throw new Error("private upstream detail");
+      return original(id);
+    };
+    const router = new FakeRouter();
+    const result = await pollCampaignCommentsWith({
+      async listEnabledCampaigns() {
+        return [{ ...campaigns[0], id: "deleted", mediaId: "deleted-media" }, campaigns[0]];
+      }
+    }, meta, router);
+    expect(result.campaignsChecked).toBe(2);
+    expect(router.events).toHaveLength(1);
+    expect(warning).toHaveBeenCalledWith("comment_poll_media_failed");
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });

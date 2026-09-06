@@ -14,6 +14,7 @@ type OpeningFinalDeliveryRepository = Pick<Repository, "listOpeningSentWithoutFi
 type CommentReplyRepository = Pick<Repository, "listOpeningSentWithoutCommentReply" | "createDelivery">;
 
 export const POLL_LIMIT_PER_MEDIA = 25;
+export const POLL_MEDIA_PER_RUN = 10;
 const PRIVATE_REPLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 export async function pollCampaignComments(env: Env): Promise<PollResult> {
@@ -37,15 +38,30 @@ export async function pollCampaignComments(env: Env): Promise<PollResult> {
 export async function pollCampaignCommentsWith(
   repo: PollRepository,
   meta: PollMetaClient,
-  router: PollRouter
+  router: PollRouter,
+  nowMs = Date.now()
 ): Promise<PollResult> {
   const campaigns = await listEnabledCampaigns(repo);
   const campaignsByMedia = groupCampaignsByMedia(campaigns);
+  // Rotate stable media batches without persistent cursor writes. Reserve
+  // subrequest/CPU headroom for routing and scheduled maintenance on Free.
+  const media = [...campaignsByMedia.entries()].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  const batches = Math.max(1, Math.ceil(media.length / POLL_MEDIA_PER_RUN));
+  const batch = Math.floor(nowMs / 60_000) % batches;
+  const selected = media.slice(batch * POLL_MEDIA_PER_RUN, (batch + 1) * POLL_MEDIA_PER_RUN);
   let commentsSeen = 0;
   let eventsSubmitted = 0;
 
-  for (const [mediaId, mediaCampaigns] of campaignsByMedia) {
-    const comments = await meta.listMediaComments(mediaId, POLL_LIMIT_PER_MEDIA);
+  for (const [mediaId, mediaCampaigns] of selected) {
+    let comments: MetaComment[];
+    try {
+      comments = await meta.listMediaComments(mediaId, POLL_LIMIT_PER_MEDIA);
+    } catch {
+      // One inaccessible/deleted post must not starve the remaining campaigns
+      // or the delivery fallback work that follows polling.
+      console.warn("comment_poll_media_failed");
+      continue;
+    }
     commentsSeen += comments.length;
 
     for (const comment of comments) {
@@ -70,7 +86,7 @@ export async function pollCampaignCommentsWith(
     }
   }
 
-  return { campaignsChecked: campaigns.length, commentsSeen, eventsSubmitted, commentRepliesQueued: 0, finalDeliveriesQueued: 0 };
+  return { campaignsChecked: selected.reduce((count, [, group]) => count + group.length, 0), commentsSeen, eventsSubmitted, commentRepliesQueued: 0, finalDeliveriesQueued: 0 };
 }
 
 export async function queueCommentRepliesAfterOpening(

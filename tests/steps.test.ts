@@ -21,6 +21,14 @@ const campaign: Campaign = {
 };
 
 describe("flow step resolver", () => {
+  it("rejects malformed step suffixes and permits follow retry after the final step", () => {
+    const stepped = { ...campaign, dmSteps: [{ text: "Step", textVariants: [], buttonTitle: "NEXT" }] };
+    for (const suffix of ["1junk", "1.5", "1:extra", "01", "-1"]) {
+      expect(resolvePayloadAdvance(stepped, "commented", "campaign-1:step:" + suffix)).toBeNull();
+    }
+    expect(resolvePayloadAdvance(stepped, "follow_requested", campaign.buttonPayload)).toEqual({ type: "final" });
+  });
+
   it("advances to final when the original button title is typed after the opening", () => {
     expect(resolveTextAdvance(campaign, "commented", "send it")).toEqual({ type: "final" });
   });
