@@ -1,79 +1,112 @@
-# CLAUDE.md
+<!-- Recreated 2026-10-08 from AGENTS.md (Codex) + repo verification. AGENTS.md remains for Codex. -->
+# ig-autodm-worker (public OSS template)
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Open-source (MIT, v0.2.0), single-account Instagram comment-to-DM automation template on Cloudflare Workers (Hono + D1 + Queues, TypeScript 6, **zod 4**), official Meta Instagram API only. Public repo `github.com/aldoprianandi/ig-autodm-worker`. Aldo's production deployment is the sibling repo `ig-autodm-selfhost`.
 
-## What This Is
+**Everything committed here is public.** No operator branding, account/app/media/campaign IDs, live URLs, real keywords, token fragments, or deployment facts — in code, docs, fixtures, or commit messages. `npm run scan:oss` enforces this in CI.
 
-Open-source, single-account Instagram comment-to-DM automation template on Cloudflare Workers (Hono + D1 + Queues), using only the official Meta Instagram Graph API. A user comments a keyword on a configured post; the Worker sends an opening private reply with a button, optionally walks the user through up to 3 button steps and a follow gate, then delivers a final prompt/link. `AGENTS.md` is the canonical operational guide and its rules apply to Claude Code too.
+Runtime primitives: Worker, D1 binding `DB`, queue binding `DELIVERY_QUEUE` (`max_retries = 5`, DLQ), one cron `* * * * *` (polling every minute, delivery recovery every 5 min, cleanup/token maintenance hourly — `src/ops/schedule.ts`).
 
-This is the public template; it must stay free of any operator-specific branding, account IDs, campaign keywords, or deployment facts. `npm run scan:oss` enforces this and runs in CI — keep it passing.
+## Default public flow (intentionally narrow)
+
+1. User comments a configured keyword on a configured media ID.
+2. Meta webhook or fallback polling records a normalized comment event.
+3. Worker queues an opening private reply.
+4. Once the opening is `sent`, fallback public comment reply queues `commentReplyText`.
+5. Optional intermediate DM button steps (max 3); final prompt normally requires a button postback or matching text.
+6. Automatic final fallback is behind `AUTO_FINAL_AFTER_OPENING=true` — keep it off (App Review-grade behavior).
+7. Cron runs token refresh, old-row cleanup, stale delivery recovery, optional fallback queueing.
+
+Campaigns default to draft (`enabled: false`).
 
 ## Commands
 
 ```bash
-npm run dev                 # wrangler dev (requires copying wrangler.example.toml to wrangler.toml)
-npm run typecheck           # tsc --noEmit (TypeScript 6)
-npm test                    # vitest run (all tests)
-npm test -- tests/admin.test.ts        # single test file
-npm test -- -t "verify token"          # filter by test name
-npm run test:coverage       # vitest with v8 coverage (thresholds 85/75/85/85)
-npm run scan:oss            # forbidden-path and secret-pattern scan for the public repo
-npm run db:migrate:local    # apply D1 migrations locally
-npm run infra:validate      # dry-run deploy against wrangler.example.toml + example migration check
+cp wrangler.example.toml wrangler.toml   # local only, gitignored; fill your own IDs
+cp .dev.vars.example .dev.vars           # local secrets, gitignored; never print values
+npm run doctor                           # offline, read-only setup check (Node >= 22)
+npm run dev                              # wrangler dev
+npm test -- tests/admin.test.ts          # single file;  npm test -- -t "name"  to filter
+npm run db:migrate:local
 ```
 
-Before claiming any change is ready, run the verification flow from `AGENTS.md`: `typecheck`, `test`, `infra:validate`, `test:coverage`, `scan:oss`, `npm audit --json`, `npm audit signatures`, `git diff --check`.
+Before claiming a change is ready (matches `.github/workflows/ci.yml`):
 
-`wrangler.toml` is gitignored here — operators copy `wrangler.example.toml` and fill their own IDs. Local secrets go in `.dev.vars` (gitignored, never print or commit).
+```bash
+npm run typecheck
+npm run infra:validate      # dry-run deploy with wrangler.example.toml + example migration check
+npm run test:coverage       # thresholds: statements 85 / branches 75 / functions 85 / lines 85
+npm audit --json
+npm audit signatures
+npm run scan:oss
+npm run docs:check          # local doc-link validation
+git diff --check
+```
+
+Deploy (operator's own account, only when asked): `npm run deploy`, then `curl -fsS https://<worker-name>.<cloudflare-account>.workers.dev/health`. `/health` alone doesn't verify D1, cron, or Meta — verify migrations against the target DB before calling a deploy complete.
 
 ## Architecture
 
 `src/index.ts` exports one Worker with three entrypoints:
 
-1. **`fetch`** — Hono app: public legal pages, `GET/POST /webhooks/meta`, Meta data-deletion callback, `/admin-ui` shell, and `/admin/*` API (`src/admin/routes.ts`).
-2. **`queue`** — `processDeliveryBatch` (`src/queue/consumer.ts`) consumes `DELIVERY_QUEUE` jobs and calls the Meta API.
-3. **`scheduled`** — every-minute cron: comment poller (`src/poller/comments.ts`), stale-delivery recovery (`src/queue/recovery.ts`), cleanup + token refresh (`src/ops/maintenance.ts`, `src/token/manager.ts`).
+- **fetch** (Hono): legal pages, `GET/POST /webhooks/meta`, Meta data-deletion callback (`src/security/signed-request.ts`), `/admin-ui` shell (`src/admin/ui.ts`, headers/CSP/HSTS in `ui-auth.ts`), `/admin/*` API (`src/admin/routes.ts`). Streaming body caps in `src/http/body.ts`.
+- **queue**: `processDeliveryBatch` (`src/queue/consumer.ts`) — claims, sends via `src/meta/api.ts`; every Meta call wrapped in `runRetryableMetaCall` so thrown network errors mark the row retrying instead of crashing the batch.
+- **scheduled**: poller (`src/poller/comments.ts`), recovery (`src/queue/recovery.ts`), maintenance + token refresh (`src/ops/maintenance.ts`, `src/token/manager.ts`).
 
-### Event pipeline (the core flow)
+Event pipeline: webhook + poller normalize (`src/meta/webhook.ts`) → `FlowRouter.handleEvent` (`src/flows/router.ts`): dedupe via `webhook_events` (`INSERT OR IGNORE`) → match campaign by media ID + fuzzy keyword (`src/flows/keyword.ts`, Damerau-Levenshtein, Indonesian stop-words, token assignment) → `deliveries` row → enqueue. Steps: `steps.ts`; variants: `variants.ts`; opening retry: `opening-retry.ts`. All D1 access: `src/db/repository.ts`.
 
-Comments reach the system two redundant ways: HMAC-verified webhook POSTs and the cron poller (for missed webhooks). Both normalize into `NormalizedEvent`s and funnel through `FlowRouter.handleEvent` (`src/flows/router.ts`), which:
+**Idempotency is load-bearing.** Delivery IDs are deterministic (`${campaignId}:${igUserId}:${type}`) with a UNIQUE constraint; webhook, poller, and recovery race safely (`createDelivery` → `false` = already done). Consumer claims (`claimDeliveryForSend` → `processing`) before sending. Stale queued/retrying rows are re-enqueued by cron; stale `processing` rows become `send_status_unknown` (manual reconciliation).
 
-- dedupes via `webhook_events` (`event_id` PK + `INSERT OR IGNORE`),
-- matches a campaign by media ID + fuzzy keyword (`src/flows/keyword.ts`, Damerau-Levenshtein with Indonesian stop-words),
-- creates a `deliveries` row and enqueues a `DeliveryJob`.
+Contact state (`contact_states`): `commented` → optional `button_step:N` → `confirmed` / `follow_requested` → final; follow gate parks as `waiting_follow` until postback/`READY`.
 
-**Idempotency is the load-bearing design**: delivery IDs are deterministic (`${campaignId}:${igUserId}:${type}`) with a UNIQUE constraint, so webhook + poller + recovery can all race safely — `createDelivery` returning `false` means someone else already did it. The consumer additionally claims rows by flipping status to `processing` before sending (`claimDeliveryForSend`), retries up to 5 attempts with retryable-vs-permanent Meta error classification (`src/meta/api.ts`), wraps every Meta call in `runRetryableMetaCall` so thrown network errors mark the row retrying instead of crashing the batch, and a local D1 outbound rate limiter gates every send.
+Token vault: `INSTAGRAM_ACCESS_TOKEN` env is the fallback; with `TOKEN_ENCRYPTION_KEY` (min 32 chars) the long-lived token is AES-GCM encrypted in D1 (`src/security/secret-box.ts`) and refreshed near expiry. Never change the KDF/format — operators' existing ciphertexts would break.
 
-### Contact state machine
+Messaging scoping: messaging webhook recipient IDs may differ from the Graph account ID. Accepted by default (signature + router state scope them); `INSTAGRAM_MESSAGING_ACCOUNT_IDS` (comma-separated) enables a strict allowlist.
 
-`contact_states` tracks per-(campaign, user) progress: `commented` → optional `button_step:N` → `confirmed` or `follow_requested` → final delivery. Button postbacks and matching-text fallbacks resolve advances in `src/flows/steps.ts`; state gates prevent skipping steps. The follow gate re-checks `is_user_follow_business` before final delivery and parks the row as `waiting_follow` until a postback/`READY`.
+## Non-negotiable safety rules
 
-### Admin auth (dual mode)
+- Never print, paste, commit, or summarize real secret values. Don't open `.dev.vars` unless validating key names (redact values). Keep tokens, app secrets, raw webhook headers, admin bearer tokens out of prompts, docs, logs, screenshots, fixtures.
+- Official Meta API only — no unofficial Instagram APIs, browser bots, session cookies, `instagram-private-api`, Selenium, mobile session replay.
+- Never disable `X-Hub-Signature-256` verification for production webhook POSTs.
+- Never remove the `AUTOMATION_ENABLED` kill switch.
+- Never bypass `TOKEN_ENCRYPTION_KEY`; D1 token rows stay encrypted.
+- Don't broaden campaigns to all posts unless the operator explicitly asks.
+- Keep `wrangler.toml`, `.dev.vars`, `.env`, `.wrangler/`, and deployment notes out of commits. Publish only `wrangler.example.toml`.
 
-`/admin/*` accepts either the long-lived bearer `ADMIN_TOKEN` or a browser session: login (username + password + admin token, optional Turnstile) sets an HttpOnly `SameSite=Strict` cookie scoped to `/admin`, and every session request must also send the per-session `X-CSRF-Token` header (rotated on resume) and match a user-agent hash. Session/CSRF/actor identifiers are stored only as HMAC hashes keyed by `ADMIN_TOKEN`. Rate limits (per-IP and global failed-auth) run before auth; every request is audit-logged; HSTS is set over HTTPS. The `/admin-ui` shell is static and embeds no data — everything loads post-login via the CSRF-protected bootstrap.
+## Security review checklist
 
-### Token vault
+- Webhook POST: HMAC over raw bytes before JSON parsing/routing; placeholder/missing secrets fail closed; bodies capped while streaming.
+- Secret comparisons: hash then `timingSafeEqual` (`src/security/constant-time.ts`).
+- Admin: bearer `ADMIN_TOKEN` or DB-backed browser session; rate limiting before privileged work; audit log. Session cookie HttpOnly `SameSite=Strict`; `X-CSRF-Token` per session; `GET /admin/session` resume validates user-agent hash and rotates CSRF; Turnstile when configured.
+- Admin UI embeds no secrets or production data; `textContent`/`createElement` under nonce CSP — no `innerHTML`, no inline handlers.
+- Meta token in `Authorization` header, not URL params (except Meta refresh endpoints that require token params).
+- Outbound sends pass `outbound_rate_limits` before Meta calls.
+- Upstream errors → `redactSensitiveText` (`src/security/redaction.ts`) before API responses or delivery storage.
+- D1: prepared statements + `.bind()`. Admin inputs Zod-validated in `routes.ts` (zod 4: `z.ZodIssueCode.custom` for custom issues).
+- Idempotent queue/poller paths. `.dev.vars` and `wrangler.toml` ignored. `npm audit --json` clean.
 
-`INSTAGRAM_ACCESS_TOKEN` (env) is the fallback. When `TOKEN_ENCRYPTION_KEY` is set (32+ characters enforced), the long-lived token lives AES-GCM-encrypted in D1 (`src/security/secret-box.ts`) and cron refreshes it on a ~45-day cadence. Never bypass the encryption or change the KDF — operators' existing ciphertexts would become undecryptable.
+## Regression & migration rules
 
-### Messaging account scoping (opt-in)
+- Fallback polling rotates at most 10 media per minute — never restore unbounded all-media polling; webhook processing stays immediate; document full-rotation latency.
+- A failed media poll must not block other media or delivery fallback.
+- Preserve terminal delivery evidence on duplicate queue messages or when disabling automation.
+- Never requeue `send_status_unknown` automatically or via ordinary retries.
+- Upstream follow-status failures count toward the retry cap; only local throttling is exempt.
+- Intermediate steps and final delivery require user interaction; automatic final fallback stays opt-in.
+- Recovery tests: thousands of terminal rows, assert actual D1 `rows_read` (`tests/d1-integration.test.ts`, Miniflare, migrations imported via `?raw`).
+- Keep this repo's migration history (`0001`–`0016`). The template splits selfhost's `0013` into `0013`–`0015`; never copy migrations across repos.
 
-Instagram Messaging webhook recipient IDs can legitimately differ from the Graph account ID used by comment webhooks. By default messaging events are accepted (signature + router state scope them); setting `INSTAGRAM_MESSAGING_ACCOUNT_IDS` (comma-separated) turns on strict allowlist enforcement in `src/meta/webhook.ts`.
+## Tests & fixtures
 
-## Security Invariants (do not weaken)
+Vitest with hand-rolled D1 stubs per file plus the Miniflare integration suite; routes via `app.request(path, init, env)`. `.mjs` tests cover doctor, doc links, OSS metadata. Fixtures/examples use generic names only (`@example_creator`, keyword `Blue Green`).
 
-- Webhook POSTs verify `X-Hub-Signature-256` over **raw bytes before any parsing**; missing/placeholder secrets fail closed (503); bodies are size-capped while streaming.
-- All secret comparisons hash first, then `timingSafeEqual` (`src/security/constant-time.ts`).
-- All D1 access goes through `Repository` with prepared statements and `.bind()` — no SQL string building from input.
-- The admin UI renders exclusively via `textContent`/`createElement` under a nonce CSP — never introduce `innerHTML` or inline handlers.
-- Upstream Meta error messages pass through `redactSensitiveText` before storage or API responses.
-- Keep the `AUTOMATION_ENABLED` kill switch intact; campaigns default to draft (`enabled: false`).
-- Official Meta API only — never unofficial Instagram APIs, session cookies, scraping, or browser automation.
+## Docs & OSS files
 
-## Conventions
+README (EN) high level, `docs/README.id.md` Indonesian quick start. Endpoints → `docs/09-api-reference.md`; feature status → `docs/10-feature-matrix.md`; setup/production procedures → `docs/runbook.md`; changes → `CHANGELOG.md` (Unreleased). `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md`, `.github/ISSUE_TEMPLATE/*`, PR template are part of the product — keep consistent when behavior changes.
 
-- **Conventional Commits** required (`feat:`, `fix:`, `docs:`, `test:`, `chore:`, `refactor:`, …); imperative, lowercase subject, no trailing period. Security fixes use `fix:`.
-- This repo uses **zod 4** (`z.ZodIssueCode.custom` for custom refinement issues) and TypeScript 6.
-- Tests are vitest: hand-rolled D1 stubs per file plus a real Miniflare D1 integration suite (`tests/d1-integration.test.ts`, migrations imported via `?raw`). Routes are exercised via `app.request(path, init, env)` with env injected as the third argument.
-- Examples and fixtures must use generic names only (`Example Creator`, `@example_creator`, keyword `Blue Green`) — no real accounts, keywords, or deployment IDs.
-- OSS meta files (`LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue templates) are part of the product; keep them consistent when behavior changes.
+## Git
+
+- Conventional Commits only (`feat|fix|docs|test|chore|refactor|perf|ci|build|style|revert`), short, imperative, lowercase after type, no period. Security fixes use `fix:`. No IDs, live media IDs, token fragments, or ops details in messages.
+- Before pushing:
+  `git log --format='%s' main..HEAD | rg -n -v '^(feat|fix|docs|test|chore|refactor|perf|ci|build|style|revert)(\([^)]+\))?!?: ' || true`
+- Don't install or rewrite personal/global skills as part of repo maintenance. Don't edit `AGENTS.md` (Codex).
