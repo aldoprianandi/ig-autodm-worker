@@ -304,4 +304,98 @@ describe("normalizeMetaWebhook", () => {
     expect(events[0]?.eventId).not.toContain("READY");
     expect(events[0]?.eventId).not.toContain("private");
   });
+
+  it("ignores payloads that are not Instagram objects when an account is configured", () => {
+    expect(normalizeMetaWebhook({ object: "page", entry: [] }, "ig-account-id")).toEqual([]);
+    expect(normalizeMetaWebhook(null, "ig-account-id")).toEqual([]);
+    expect(normalizeMetaWebhook({ object: "instagram", entry: "not-an-array" }, "ig-account-id")).toEqual([]);
+  });
+
+  it("skips non-comment changes and comments missing required ids", () => {
+    const events = normalizeMetaWebhook({
+      object: "instagram",
+      entry: [
+        {
+          id: "ig-account-id",
+          changes: [
+            { field: "mentions", value: { id: "comment-0", media: { id: "media-1" }, from: { id: "user-1" } } },
+            { field: "comments", value: { id: "comment-1", media: { id: "media-1" } } },
+            { field: "comments", value: { media: { id: "media-1" }, from: { id: "user-1" } } },
+            { field: "comments", value: { id: "comment-2", from: { id: "user-1" } } },
+            { field: "comments", value: "not-an-object" }
+          ]
+        }
+      ]
+    });
+
+    expect(events).toEqual([]);
+  });
+
+  it("uses created_time or timestamp and truncates long comment fields", () => {
+    const events = normalizeMetaWebhook({
+      entry: [
+        {
+          changes: [
+            {
+              field: "comments",
+              value: {
+                id: "comment-1",
+                text: "x".repeat(1200),
+                created_time: "2026-01-01T00:00:00+0000",
+                media: { id: "media-1" },
+                from: { id: "user-1", username: "u".repeat(100) }
+              }
+            },
+            {
+              field: "comments",
+              value: { id: "comment-2", timestamp: "2026-01-02T00:00:00+0000", media: { id: "media-1" }, from: { id: "user-2" } }
+            }
+          ]
+        }
+      ]
+    });
+
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ createdAt: "2026-01-01T00:00:00+0000" });
+    expect(events[0]?.type === "comment.created" && events[0].text).toHaveLength(1000);
+    expect(events[0]?.type === "comment.created" && events[0].username).toHaveLength(80);
+    expect(events[1]).toMatchObject({ createdAt: "2026-01-02T00:00:00+0000", username: undefined, text: "" });
+  });
+
+  it("skips messaging events without sender, timestamp, payload, or text", () => {
+    const events = normalizeMetaWebhook({
+      entry: [
+        {
+          messaging: [
+            { timestamp: 1, message: { text: "READY" } },
+            { sender: { id: "user-1" }, message: { text: "READY" } },
+            { sender: { id: "user-1" }, timestamp: 2, message: { mid: "mid-1" } },
+            { sender: { id: "user-1" }, timestamp: 3, message: { attachments: [] } }
+          ]
+        }
+      ]
+    });
+
+    expect(events).toEqual([]);
+  });
+
+  it("uses the postback mid as event id and truncates long payloads", () => {
+    const events = normalizeMetaWebhook({
+      entry: [
+        {
+          messaging: [
+            { sender: { id: "user-1" }, timestamp: 5, postback: { mid: "postback-mid", payload: "p".repeat(300) } },
+            { sender: { id: "user-1" }, timestamp: 6, postback: { payload: "NEXT" } },
+            { sender: { id: "user-1" }, timestamp: 7, message: { text: "t".repeat(1200) } }
+          ]
+        }
+      ]
+    });
+
+    expect(events[0]).toMatchObject({ type: "message.postback", eventId: "postback:user-1:postback-mid" });
+    expect(events[0]?.type === "message.postback" && events[0].payload).toHaveLength(200);
+    expect(events[1]).toMatchObject({ type: "message.postback", eventId: "postback:user-1:6", payload: "NEXT" });
+    expect(events[2]).toMatchObject({ type: "message.text", eventId: "message:user-1:7" });
+    expect(events[2]?.type === "message.text" && events[2].text).toHaveLength(1000);
+  });
 });

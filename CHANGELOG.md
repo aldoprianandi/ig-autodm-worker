@@ -10,10 +10,12 @@ All notable changes to this project are documented in this file.
 - Protected uncertain sends from ordinary retries and preserved completed delivery evidence.
 - Capped retryable follow-status failures and corrected follow-gate/postback edge cases.
 - Replaced combinatorial fuzzy matching with augmenting-path token assignment.
+- Cleared all `npm audit` advisories: Hono 4.13.13 (JSX XSS fix), Vitest 5 and `@vitest/coverage-v8` 5, Wrangler 4.148 with Miniflare 5, and patched overrides for `undici`, `sharp`, `brace-expansion`, and `source-map-js`.
 
 ### Added
 
 - Recovery indexes, real D1 read-cost regression tests, and scheduled-handler tests.
+- Edge-case tests for streamed body limits, webhook normalization, and token refresh.
 - An Indonesian quick-start guide and local documentation-link validation.
 
 ### Documentation

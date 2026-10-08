@@ -583,9 +583,25 @@ async function createMigratedD1(): Promise<{
   close(): Promise<void>;
 }> {
   const miniflare = new Miniflare({
-    modules: true,
-    script: "export default { fetch() { return new Response('ok'); } }",
-    d1Databases: ["DB"]
+    workers: [
+      {
+        config: {
+          name: "d1-integration",
+          compatibilityDate: "2026-05-07",
+          manifest: {
+            mainModule: "index.mjs",
+            modulesRoot: "/",
+            modules: {
+              "index.mjs": {
+                type: "esm",
+                contents: "export default { fetch() { return new Response('ok'); } }"
+              }
+            }
+          },
+          env: { DB: { type: "d1" } }
+        }
+      }
+    ]
   });
   const d1 = await miniflare.getD1Database("DB");
 
